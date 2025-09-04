@@ -304,7 +304,8 @@ col_acc1, col_acc2, col_acc3, col_acc4 = st.columns(4)
 with col_acc1:
     st.button("📊 Ver Todas las Clases")
 with col_acc2:
-    st.button("📢 Crear Nuevo Aviso")
+    if st.button("📢 Crear Nuevo Aviso"):
+        st.switch_page("pages/crearaviso.py")
 with col_acc3:
     st.button("📥 Cargar Datos")
 with col_acc4:
@@ -499,6 +500,7 @@ with col_qr1:
 
 with col_qr2:
     if st.button("📲 Generar QR", help="Generar código QR para autoregistro"):
+        st.switch_page("pages/generarqr.py")
         st.success("¡Código QR generado exitosamente!")
         st.info("Código válido por 30 minutos")
 
