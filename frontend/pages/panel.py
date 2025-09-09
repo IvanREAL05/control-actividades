@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import requests
+import math
+
 
 # Configuración de la página
 st.set_page_config(
@@ -9,7 +12,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
+API_BASE_URL = "http://localhost:8000/api/"
 # CSS personalizado para el tema azul y blanco
 st.markdown("""
 <style>
@@ -243,63 +246,53 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Simulación de datos ---
-clases = [
-    {"id_clase": 1, "nombre_materia": "Matemáticas", "nrc": "12345", "nombre_grupo": "1A"},
-    {"id_clase": 2, "nombre_materia": "Historia", "nrc": "67890", "nombre_grupo": "2B"},
-    {"id_clase": 3, "nombre_materia": "Física", "nrc": "54321", "nombre_grupo": "3C"}
-]
+# 1. Obtener clases del día desde el backend
+try:
+    res_clases = requests.get("http://localhost:8000/api/clases/hoy/todas")
+    res_clases.raise_for_status()
+    clases = res_clases.json()
+except Exception as e:
+    st.error(f"Error al cargar clases del día: {e}")
+    clases = []
 
-alumnos = [
-    {"matricula": "A001", "nombre": "Juan", "apellido": "Pérez", "estado": "presente", "no_lista": 1},
-    {"matricula": "A002", "nombre": "Ana", "apellido": "López", "estado": "ausente", "no_lista": 2},
-    {"matricula": "A003", "nombre": "Luis", "apellido": "Ramírez", "estado": "justificante", "no_lista": 3},
-    {"matricula": "A004", "nombre": "María", "apellido": "González", "estado": "presente", "no_lista": 4},
-    {"matricula": "A005", "nombre": "Carlos", "apellido": "Mendoza", "estado": "presente", "no_lista": 5}
-]
-
-# --- Header personalizado ---
-st.markdown("""
-<div class="custom-header">
+# Encabezado y barra superior
+st.markdown("""<div class="custom-header">
     <div style="display: flex; align-items: center; justify-content: space-between;">
         <div style="width: 60px;"></div>
         <h1 class="header-title">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
         <div style="width: 60px;"></div>
     </div>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
 
-# --- Barra superior de información ---
 col_fecha, col_user, col_btn = st.columns([2, 2, 1])
-
 with col_fecha:
-    st.markdown(f"""
-    <div class="datetime-info">
-        📅 {datetime.now().strftime("%d/%m/%Y")}<br>
-        🕐 {datetime.now().strftime("%H:%M:%S")}
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f"📅 {datetime.now():%d/%m/%Y}<br>🕐 {datetime.now():%H:%M:%S}", unsafe_allow_html=True)
 with col_user:
     st.info("👋 Bienvenido, Profesor")
-
 with col_btn:
     if st.button("🚪 Cerrar Sesión", type="secondary"):
         st.session_state.clear()
         st.success("Sesión cerrada correctamente")
-
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# --- Selector de clase ---
+
+# 2. Selector de clase
 st.markdown('<h2 class="section-title">📘 Control de Asistencia por Clase</h2>', unsafe_allow_html=True)
 
-clase_seleccionada = st.selectbox(
-    "Selecciona una clase",
-    [f"{c['nombre_materia']} - {c['nrc']} - {c['nombre_grupo']}" for c in clases],
-    key="selector_clase"
-)
+id_clase = None  # inicializamos por seguridad
 
-# --- Botones de acción ---
+if clases:
+    opciones = [f"{c['nombre_materia']} - {c['nrc']} - {c['nombre_grupo']}" for c in clases]
+    seleccion = st.selectbox("Selecciona una clase", opciones, key="selector_clase")
+
+    if seleccion and seleccion in opciones:
+        id_clase = clases[opciones.index(seleccion)]["id_clase"]
+    else:
+        st.warning("Selecciona una clase válida.")
+else:
+    st.warning("⚠️ No hay clases disponibles para hoy.")
+
+# Botones de acción
 col_acc1, col_acc2, col_acc3, col_acc4 = st.columns(4)
 with col_acc1:
     st.button("📊 Ver Todas las Clases")
@@ -307,206 +300,214 @@ with col_acc2:
     if st.button("📢 Crear Nuevo Aviso"):
         st.switch_page("pages/crearaviso.py")
 with col_acc3:
-    st.button("📥 Cargar Datos")
-with col_acc4:
-    st.button("📝 Justificantes")
+    if st.button("📥 Cargar Datos"):
+        st.switch_page("pages/cargardatos.py")
 
+with col_acc4:
+    if st.button("📝 Justificantes"):
+        st.switch_page("pages/justificantes.py")
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# --- Estadísticas ---
-st.markdown('<h2 class="section-title">📈 Estadísticas de la Clase</h2>', unsafe_allow_html=True)
+# Inicializar alumnos vacíos
+alumnos = []
+clase_info = {}
 
-presentes = sum(1 for a in alumnos if a["estado"] == "presente")
-ausentes = sum(1 for a in alumnos if a["estado"] == "ausente")
-justificantes = sum(1 for a in alumnos if a["estado"] == "justificante")
+# 3. Obtener alumnos desde backend si se seleccionó una clase
+if id_clase is not None:
+    try:
+        res_alumnos = requests.get(f"http://localhost:8000/api/profesor/clase/{id_clase}/estudiantes")
+        res_alumnos.raise_for_status()
+        resp = res_alumnos.json()
+        alumnos = resp.get("data", {}).get("estudiantes", [])
+        clase_info = resp.get("data", {}).get("clase", {})
+    except Exception as e:
+        st.error(f"Error al cargar estudiantes de clase: {e}")
+
+# Estadísticas de asistencia
+presentes = sum(1 for a in alumnos if a["estado_actual"] == "presente")
+ausentes = sum(1 for a in alumnos if a["estado_actual"] == "ausente")
+justificantes = sum(1 for a in alumnos if a["estado_actual"] == "justificante")
 total = len(alumnos)
 
+
+# Turno predeterminado
+turno = "matutino"
+
+# Llamada al endpoint de resumen
+try:
+    response = requests.get(f"{API_BASE_URL}/asistencias/resumen", params={"turno": turno})
+    if response.status_code == 200:
+        resumen = response.json()
+        total = resumen["totalAlumnos"]
+        presentes = resumen["presentes"]
+        ausentes = resumen["ausentes"]
+        justificantes = resumen["justificantes"]
+        porcentaje = resumen["porcentaje"]
+    else:
+        st.error("⚠️ No se pudo obtener el resumen de asistencia.")
+        total = presentes = ausentes = justificantes = porcentaje = 0
+except Exception as e:
+    st.error(f"❌ Error de conexión al backend: {e}")
+    total = presentes = ausentes = justificantes = porcentaje = 0
+
+st.markdown('<h2 class="section-title">📈 Estadísticas de la Clase</h2>', unsafe_allow_html=True)
 col_est1, col_est2, col_est3 = st.columns([1, 1, 2])
 
 with col_est1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{total}</div>
-        <div class="metric-label">Total Alumnos</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{presentes}</div>
-        <div class="metric-label">Presentes</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f'<div class="metric-card"><div class="metric-value">{total}</div><div class="metric-label">Total Alumnos</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-value">{presentes}</div><div class="metric-label">Presentes</div></div>', unsafe_allow_html=True)
 with col_est2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{ausentes}</div>
-        <div class="metric-label">Ausentes</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{justificantes}</div>
-        <div class="metric-label">Justificantes</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f'<div class="metric-card"><div class="metric-value">{ausentes}</div><div class="metric-label">Ausentes</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-value">{justificantes}</div><div class="metric-label">Justificantes</div></div>', unsafe_allow_html=True)
 with col_est3:
-    df_estadisticas = pd.DataFrame([
+    df_est = pd.DataFrame([
         {"Estado": "Presentes", "Cantidad": presentes},
         {"Estado": "Ausentes", "Cantidad": ausentes},
         {"Estado": "Justificantes", "Cantidad": justificantes}
     ])
-    
-    # Colores personalizados para el gráfico
-    colors = ['#2563eb', '#ef4444', '#f59e0b']
-    
-    fig = px.pie(
-        df_estadisticas, 
-        values="Cantidad", 
-        names="Estado", 
-        title="Distribución de Asistencia",
-        color_discrete_sequence=colors
-    )
-    
-    fig.update_layout(
-        font_family="Inter",
-        title_font_size=16,
-        title_font_color='#1f2937',
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.2,
-            xanchor="center",
-            x=0.5
-        )
-    )
-    
+    fig = px.pie(df_est, values="Cantidad", names="Estado", title="Distribución de Asistencia",
+                 color_discrete_sequence=['#2563eb', '#ef4444', '#f59e0b'])
+    fig.update_layout(font_family="Inter", title_font_size=16, title_font_color='#1f2937',
+                      showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
     st.plotly_chart(fig, use_container_width=True)
 
-st.markdown("<hr>", unsafe_allow_html=True)
 
-# --- Lista de alumnos ---
+
+#Backend 
+alumnos = []
+clase_info = {}
+
+if id_clase:
+    # Buscar la clase seleccionada
+    clase_info = next((c for c in clases if c["id_clase"] == id_clase), None)
+
+    if clase_info:
+        id_grupo = clase_info["id_grupo"]
+        try:
+            res_alumnos = requests.get(f"http://localhost:8000/api/estudiantes/grupo/{id_grupo}")
+            res_alumnos.raise_for_status()
+            alumnos = res_alumnos.json()
+        except Exception as e:
+            st.error(f"Error al obtener alumnos: {e}")
+    else:
+        st.warning("No se encontró la información de la clase seleccionada.")
+# Inicializar el estado si no existe
+if "ver_todos_alumnos" not in st.session_state:
+    st.session_state.ver_todos_alumnos = False
+#4 Lista de alumnos
 st.markdown('<h2 class="section-title">👨‍🎓 Lista de Alumnos</h2>', unsafe_allow_html=True)
 
-for i, alumno in enumerate(alumnos):
-    col_a1, col_a2, col_a3 = st.columns([3, 1, 1])
-    
-    with col_a1:
-        st.markdown(f"""
-        <div class="student-info">
-            {alumno['nombre']} {alumno['apellido']} — {alumno['matricula']}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col_a2:
-        estado = alumno['estado'].title()
-        button_class = f"status-{alumno['estado']}"
-        
-        if st.button(f"📋 {estado}", key=f"estado_{alumno['matricula']}", help=f"Cambiar estado de {alumno['nombre']}"):
-            st.toast(f"Estado de {alumno['nombre']} actualizado", icon="✅")
-    
-    with col_a3:
-        if st.button("ℹ️ Detalles", key=f"info_{alumno['matricula']}", help=f"Ver información de {alumno['nombre']}"):
-            st.info(f"Información detallada de {alumno['nombre']} {alumno['apellido']}")
+if alumnos:
+    # Mostrar primeros 5 o todos según estado
+    mostrar_alumnos = alumnos if st.session_state.ver_todos_alumnos else alumnos[:5]
+
+    for alumno in mostrar_alumnos:
+        col_a1, col_a2, col_a3 = st.columns([3, 1, 1])
+        with col_a1:
+            st.markdown(
+                f"<div class='student-info'>{alumno['no_lista']}. {alumno['nombre']} {alumno['apellido']} — {alumno['matricula']}</div>",
+                unsafe_allow_html=True
+            )
+        with col_a2:
+            estado = alumno['estado_actual'].title()
+            if st.button(f"📋 {estado}", key=f"estado_{alumno['id_estudiante']}"):
+                st.toast(f"Estado de {alumno['nombre']} actualizado", icon="✅")
+        with col_a3:
+            if st.button("ℹ️ Detalles", key=f"info_{alumno['id_estudiante']}"):
+                st.info(f"Información detallada de {alumno['nombre']} {alumno['apellido']}")
+
+    # Botón para alternar entre mostrar todos o menos
+    if len(alumnos) > 5:
+        if st.session_state.ver_todos_alumnos:
+            if st.button("⬆️ Ver menos"):
+                st.session_state.ver_todos_alumnos = False
+                st.rerun()
+        else:
+            if st.button("⬇️ Ver más"):
+                st.session_state.ver_todos_alumnos = True
+                st.rerun()
+
+else:
+    st.warning("No hay alumnos registrados para este grupo.")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# --- Mapa de asientos ---
+
+
+
+# 5 Mapa de asientos dinámico
 st.markdown('<h2 class="section-title">🪑 Mapa de Asientos</h2>', unsafe_allow_html=True)
 
-st.markdown("### Distribución del Aula")
-rows, cols = 5, 6
+cols = 6  # puedes cambiarlo a 5 u 8 según el ancho que prefieras
+total_alumnos = len(alumnos)
+rows = math.ceil(total_alumnos / cols)
 
 for i in range(rows):
     cols_seat = st.columns(cols)
     for j in range(cols):
-        seat_number = i * cols + j + 1
-        alumno_asiento = next((a for a in alumnos if a.get("no_lista") == seat_number), None)
+        seat_num = i * cols + j + 1
+        a = next((x for x in alumnos if x.get("no_lista") == seat_num), None)
         
         with cols_seat[j]:
-            if alumno_asiento:
-                estado_color = {
+            if a:
+                estado = a.get("estado_actual", "").lower()
+                color = {
                     "presente": "🟢",
-                    "ausente": "🔴", 
+                    "ausente": "🔴",
                     "justificante": "🟡"
-                }.get(alumno_asiento["estado"], "⚪")
-                
-                if st.button(
-                    f"{estado_color} {alumno_asiento['nombre'][0]}{alumno_asiento['apellido'][0]}", 
-                    key=f"seat_{i}_{j}",
-                    help=f"{alumno_asiento['nombre']} {alumno_asiento['apellido']} - {alumno_asiento['estado'].title()}"
-                ):
-                    st.info(f"Asiento {seat_number}: {alumno_asiento['nombre']} {alumno_asiento['apellido']}")
+                }.get(estado, "⚪")
+
+                nombre = a.get("nombre", "")
+                apellido = a.get("apellido", "")
+                iniciales = (nombre[:1] + apellido[:1]).upper() if nombre and apellido else "--"
+
+                if st.button(f"{color} {iniciales}", key=f"seat_{seat_num}"):
+                    st.info(f"Asiento {seat_num}: {nombre} {apellido} - {estado.title()}")
             else:
-                st.button("⚪ ---", key=f"empty_seat_{i}_{j}", disabled=True, help="Asiento vacío")
+                st.button("⚪ ---", key=f"empty_{seat_num}", disabled=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# --- Resumen General ---
+# 4 Resumen general (podrías obtenerlo de otro endpoint si lo implementas)
 st.markdown('<h2 class="section-title">📊 Resumen General del Día</h2>', unsafe_allow_html=True)
-
 col_r1, col_r2 = st.columns([1, 1])
-
 with col_r1:
-    st.markdown("""
+    st.markdown(f"""
     <div class="info-card">
-        <h4 style="color: #2563eb; margin: 0 0 1rem 0;">📈 Estadísticas Generales</h4>
-        <p><strong>Total de estudiantes:</strong> 120</p>
-        <p><strong>Asistencia promedio:</strong> 85%</p>
-        <p><strong>Clases del día:</strong> 8</p>
-        <p><strong>Última actualización:</strong> Hace 5 minutos</p>
+        <h4 style="color: #2563eb;">📈 Estadísticas Generales</h4>
+        <p><strong>Total de estudiantes:</strong> {total}</p>
+        <p><strong>Presentes:</strong> {presentes}</p>
+        <p><strong>Ausentes:</strong> {ausentes}</p>
+        <p><strong>Justificantes:</strong> {justificantes}</p>
     </div>
     """, unsafe_allow_html=True)
-
 with col_r2:
-    df_general = pd.DataFrame([
-        {"Estado": "Presentes", "Cantidad": 90},
-        {"Estado": "Ausentes", "Cantidad": 20},
-        {"Estado": "Justificantes", "Cantidad": 10}
-    ])
-    
-    fig2 = px.pie(
-        df_general, 
-        values="Cantidad", 
-        names="Estado", 
-        title="Resumen General del Día",
-        color_discrete_sequence=['#2563eb', '#ef4444', '#f59e0b']
-    )
-    
-    fig2.update_layout(
-        font_family="Inter",
-        title_font_size=16,
-        title_font_color='#1f2937'
-    )
-    
+    fig2 = px.pie(pd.DataFrame([
+        {"Estado": "Presentes", "Cantidad": presentes},
+        {"Estado": "Ausentes", "Cantidad": ausentes},
+        {"Estado": "Justificantes", "Cantidad": justificantes}
+    ]), values="Cantidad", names="Estado", title="Resumen General del Día",
+               color_discrete_sequence=['#2563eb', '#ef4444', '#f59e0b'])
+    fig2.update_layout(font_family="Inter", title_font_size=16, title_font_color='#1f2937')
     st.plotly_chart(fig2, use_container_width=True)
 
-# --- Footer con QR ---
+# QR y footer
 st.markdown("<hr>", unsafe_allow_html=True)
-
 col_qr1, col_qr2 = st.columns([3, 1])
-
 with col_qr1:
     st.markdown("""
     <div class="info-card">
-        <h4 style="color: #2563eb; margin: 0 0 0.5rem 0;">📱 Código QR para Estudiantes</h4>
+        <h4 style="color: #2563eb;">📱 Código QR para Estudiantes</h4>
         <p>Los estudiantes pueden escanear el código QR para registrar su asistencia de forma autónoma.</p>
     </div>
     """, unsafe_allow_html=True)
-
 with col_qr2:
-    if st.button("📲 Generar QR", help="Generar código QR para autoregistro"):
+    if st.button("📲 Generar QR"):
         st.switch_page("pages/generarqr.py")
         st.success("¡Código QR generado exitosamente!")
         st.info("Código válido por 30 minutos")
-
-# Footer
 st.markdown("""
-<div style="text-align: center; padding: 2rem 0; color: #6b7280; border-top: 1px solid #e5e7eb; margin-top: 2rem;">
+<div style="text-align: center; padding: 2rem 0; color: #6b7280; border-top: 1px solid #e5e7eb;">
     <p>© 2025 UA PREP. LÁZARO CARDENAS DEL RÍO - Sistema de Control</p>
 </div>
 """, unsafe_allow_html=True)

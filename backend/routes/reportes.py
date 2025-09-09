@@ -123,3 +123,4 @@ async def generar_excel_clase(id_clase: int):
     }
 
     return StreamingResponse(stream, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+#yangcristina864@gmail.com

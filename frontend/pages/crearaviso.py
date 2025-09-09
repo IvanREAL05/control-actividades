@@ -1,6 +1,8 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, date
 import time
+import requests
+
 
 # ---------- CONFIGURACIÓN DE LA PÁGINA ----------
 st.set_page_config(page_title="Crear Aviso", layout="wide")
@@ -146,19 +148,28 @@ with col2:
     </div>
     """, unsafe_allow_html=True)
 
-# ---------- FORMULARIO ----------
+# ---------- ESTADOS INICIALES ----------
+if 'aviso_success' not in st.session_state:
+    st.session_state.aviso_success = False
+if 'aviso_error' not in st.session_state:
+    st.session_state.aviso_error = None
+
+# ---------- ENCABEZADO ----------
 st.markdown("""
 <div class='crear-aviso-container'>
     <div class='section-title'>📝 Crear Nuevo Aviso Oficial</div>
 """, unsafe_allow_html=True)
-# Estados del formulario
-success = False
-error = None
 
-# Formulario
+def normalizar_url(url):
+    url = url.strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    return url
+
+# ---------- FORMULARIO ----------
 with st.form("form_aviso"):
     nombre_evento = st.text_input("Nombre del Evento", max_chars=255)
-    fecha_evento = st.date_input("Fecha del Evento")
+    fecha_evento = st.date_input("Fecha del Evento", value=date.today())
     descripcion = st.text_area("Descripción", height=150)
     enlace = st.text_input("Enlace (URL)", placeholder="https://ejemplo.com")
 
@@ -167,23 +178,57 @@ with st.form("form_aviso"):
     cancelado = col_cancelar.form_submit_button("Cancelar")
 
     if submitted:
-        if not (nombre_evento and descripcion and enlace):
-            error = "Todos los campos son obligatorios."
+        # Validación básica
+        if not (nombre_evento.strip() and descripcion.strip() and enlace.strip()):
+            st.session_state.aviso_error = "❌ Todos los campos son obligatorios."
+            st.session_state.aviso_success = False
         else:
-            success = True
-            # Aquí podrías guardar el aviso en base de datos o archivo
-            # save_aviso(nombre_evento, fecha_evento, descripcion, enlace)
+            try:
+                aviso_data = {
+                    "nombre_evento": nombre_evento.strip(),
+                    "fecha": fecha_evento.isoformat(),  # 'YYYY-MM-DD'
+                    "descripcion": descripcion.strip(),
+                    "enlace": normalizar_url(enlace),
+                }
+
+                # Cambia si el backend está en otra dirección
+                backend_url = "http://localhost:8000/api/avisos/"
+                response = requests.post(backend_url, json=aviso_data)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    st.session_state.aviso_success = True
+                    st.session_state.aviso_error = None
+                    st.success("✅ Aviso creado exitosamente.")
+
+                    # Muestra información del aviso recién creado
+                    aviso = result.get("data", {})
+                    st.markdown(f"**ID:** {aviso.get('id')}")
+                    st.markdown(f"**Evento:** {aviso.get('nombre_evento')}")
+                    st.markdown(f"**Fecha:** {aviso.get('fecha')}")
+                    st.markdown(f"**Descripción:** {aviso.get('descripcion')}")
+                    st.markdown(f"**Enlace:** [Ir al evento]({aviso.get('enlace')})")
+
+                    # Redirigir después de unos segundos
+                    time.sleep(3)
+                    st.rerun()
+                else:
+                    error_msg = response.json().get("detail", "Error desconocido")
+                    st.session_state.aviso_error = f"❌ {error_msg}"
+                    st.session_state.aviso_success = False
+
+            except Exception as e:
+                st.session_state.aviso_error = f"🚨 Error al conectar con el backend: {e}"
+                st.session_state.aviso_success = False
 
     if cancelado:
-        st.experimental_rerun()
+        # Limpia todos los campos y estados
+        for key in ["aviso_success", "aviso_error"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 # ---------- MENSAJES ----------
-if success:
-    st.success("✅ Aviso creado exitosamente. Redirigiendo...")
-    time.sleep(2)
-    st.experimental_rerun()
-
-if error:
-    st.error(f"❌ {error}")
+if st.session_state.aviso_error:
+    st.error(st.session_state.aviso_error)
 
 st.markdown("</div>", unsafe_allow_html=True)

@@ -3,6 +3,7 @@ from datetime import datetime
 import qrcode
 from io import BytesIO
 import base64
+import requests
 
 # ---------- CONFIGURACIÓN DE LA PÁGINA ----------
 st.set_page_config(page_title="Generar QR", layout="wide")
@@ -120,6 +121,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ---------- LIMPIEZA AUTOMÁTICA AL ENTRAR ----------
+if "qr_page_initialized" not in st.session_state:
+    for key in ["qr_image", "nombre_alumno", "error", "matricula", "loading"]:
+        st.session_state.pop(key, None)
+    st.session_state.qr_page_initialized = True
+    st.rerun()
+
 # ---------- ENCABEZADO ----------
 col1, col2 = st.columns([4, 1])
 with col1:
@@ -153,7 +161,8 @@ st.markdown("""
     <div class='section-title'>📷 Generar QR por Matrícula</div>
 """, unsafe_allow_html=True)
 
-matricula = st.text_input("Ingrese matrícula", placeholder="Ej: 12345678", max_chars=15)
+# ---------- INPUT CONTROLADO ----------
+st.text_input("Ingrese matrícula", placeholder="Ej: 12345678", max_chars=15, key="matricula")
 
 # ---------- ESTADOS ----------
 if 'loading' not in st.session_state:
@@ -165,51 +174,75 @@ if 'nombre_alumno' not in st.session_state:
 if 'error' not in st.session_state:
     st.session_state.error = None
 
-# ---------- LÓGICA DE GENERACIÓN ----------
-if st.button("Generar QR", disabled=st.session_state.loading):
-    st.session_state.loading = True
-    st.session_state.qr_image = None
-    st.session_state.nombre_alumno = None
-    st.session_state.error = None
+# ---------- BOTONES ----------
+col_gen, col_clean = st.columns([1, 1])
 
-    if matricula.strip() == "":
-        st.session_state.error = "⚠️ Por favor, ingrese una matrícula válida."
-    else:
-        # Simula una base de datos
-        base_datos_mock = {
-            "12345": "Juan Pérez",
-            "67890": "Ana López",
-            "54321": "Carlos Martínez"
-        }
+# Botón Generar QR
+with col_gen:
+    if st.button("🚀 Generar QR", disabled=st.session_state.loading):
+        st.session_state.loading = True
+        st.session_state.qr_image = None
+        st.session_state.nombre_alumno = None
+        st.session_state.error = None
 
-        nombre = base_datos_mock.get(matricula.strip())
+        matricula_clean = st.session_state.matricula.strip()
 
-        if nombre:
-            st.session_state.nombre_alumno = nombre
-
-            # Generar QR
-            qr = qrcode.make(f"Matrícula: {matricula} | Alumno: {nombre}")
-            buffered = BytesIO()
-            qr.save(buffered, format="PNG")
-            st.session_state.qr_image = buffered.getvalue()
+        if matricula_clean == "":
+            st.session_state.error = "⚠️ Por favor, ingrese una matrícula válida."
         else:
-            st.session_state.error = "🚫 Matrícula no encontrada en el sistema."
+            try:
+                url = f"http://localhost:8000/api/qr/por-matricula/{matricula_clean}"
+                response = requests.get(url)
 
-    st.session_state.loading = False
-    st.experimental_rerun()
+                if response.status_code == 200:
+                    data = response.json()
+                    qr_base64 = data["data"]["qr"]["imagen"]
+                    nombre_alumno = data["data"]["estudiante"]["nombre"]
+
+                    # Limpiar prefijo base64
+                    prefix = "data:image/png;base64,"
+                    if qr_base64.startswith(prefix):
+                        qr_base64 = qr_base64[len(prefix):]
+
+                    st.session_state.qr_image = base64.b64decode(qr_base64)
+                    st.session_state.nombre_alumno = nombre_alumno
+                    st.session_state.error = None
+                else:
+                    error_msg = response.json().get("detail", "Error desconocido")
+                    st.session_state.error = f"🚫 {error_msg}"
+            except Exception as e:
+                st.session_state.error = f"🚨 Error al conectar con el servidor: {e}"
+
+        st.session_state.loading = False
+        st.rerun()
+
+# Botón Limpiar
+with col_clean:
+    if st.button("🧹 Limpiar"):
+        for key in ["qr_image", "nombre_alumno", "error", "matricula"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 # ---------- RESULTADOS ----------
-if st.session_state.error:
-    st.markdown(f"<p class='generadorqr-error-message'>{st.session_state.error}</p>", unsafe_allow_html=True)
+if st.session_state.get("error"):
+    st.markdown(
+        f"<p class='generadorqr-error-message'>{st.session_state.error}</p>",
+        unsafe_allow_html=True
+    )
 
-if st.session_state.nombre_alumno and not st.session_state.error:
-    st.markdown(f"<p class='generadorqr-nombre-alumno'>Alumno: {st.session_state.nombre_alumno}</p>", unsafe_allow_html=True)
+if st.session_state.get("nombre_alumno") and not st.session_state.get("error"):
+    st.markdown(
+        f"<p class='generadorqr-nombre-alumno'>Alumno: {st.session_state.nombre_alumno}</p>",
+        unsafe_allow_html=True
+    )
 
-if st.session_state.qr_image:
+if st.session_state.get("qr_image"):
     st.image(st.session_state.qr_image, caption="QR generado", width=200)
 
     b64 = base64.b64encode(st.session_state.qr_image).decode()
-    href = f'<a href="data:image/png;base64,{b64}" download="qr_{matricula}.png" class="generadorqr-download-link">📥 Descargar QR</a>'
+    filename = f"qr_{st.session_state.get('matricula', 'qr')}.png"
+    href = f'<a href="data:image/png;base64,{b64}" download="{filename}" class="generadorqr-download-link">📥 Descargar QR</a>'
     st.markdown(href, unsafe_allow_html=True)
 
+# ---------- CIERRE DIV PRINCIPAL ----------
 st.markdown("</div>", unsafe_allow_html=True)
