@@ -6,12 +6,6 @@ import requests
 import math
 
 
-# Configuración de la página
-st.set_page_config(
-    page_title="Panel de Control - LCR", 
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 API_BASE_URL = "http://localhost:8000/api/"
 # CSS personalizado para el tema azul y blanco
 st.markdown("""
@@ -245,6 +239,57 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+#Configuracion 
+st.set_page_config(
+    page_title="Panel",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# --- Ocultar menú y footer ---
+hide_menu = """
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_menu, unsafe_allow_html=True)
+
+# --- Protección de acceso ---
+if "usuario" not in st.session_state:
+    st.warning("⚠️ Debes iniciar sesión primero")
+    st.switch_page("app.py")
+    st.stop()
+
+usuario = st.session_state["usuario"]
+
+# --- Encabezado superior ---
+st.markdown("""<div class="custom-header">
+    <div style="display: flex; align-items: center; justify-content: center;">
+        <h1 class="header-title">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+    </div>
+</div>""", unsafe_allow_html=True)
+
+col_fecha, col_user, col_btn = st.columns([2, 2, 1])
+
+# Fecha y hora (estática)
+with col_fecha:
+    st.markdown(f"📅 {datetime.now():%d/%m/%Y}<br>", unsafe_allow_html=True)
+
+# Usuario
+with col_user:
+    st.info(f"👋 Bienvenido, {usuario['nombre_completo']}")
+
+# Botón cerrar sesión
+with col_btn:
+    if st.button("🚪 Cerrar Sesión"):
+        st.session_state.clear()
+        st.switch_page("app.py")
+
+st.markdown("<hr>", unsafe_allow_html=True)
+
 
 # 1. Obtener clases del día desde el backend
 try:
@@ -254,26 +299,6 @@ try:
 except Exception as e:
     st.error(f"Error al cargar clases del día: {e}")
     clases = []
-
-# Encabezado y barra superior
-st.markdown("""<div class="custom-header">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div style="width: 60px;"></div>
-        <h1 class="header-title">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
-        <div style="width: 60px;"></div>
-    </div>
-</div>""", unsafe_allow_html=True)
-
-col_fecha, col_user, col_btn = st.columns([2, 2, 1])
-with col_fecha:
-    st.markdown(f"📅 {datetime.now():%d/%m/%Y}<br>🕐 {datetime.now():%H:%M:%S}", unsafe_allow_html=True)
-with col_user:
-    st.info("👋 Bienvenido, Profesor")
-with col_btn:
-    if st.button("🚪 Cerrar Sesión", type="secondary"):
-        st.session_state.clear()
-        st.success("Sesión cerrada correctamente")
-st.markdown("<hr>", unsafe_allow_html=True)
 
 
 # 2. Selector de clase
@@ -308,97 +333,138 @@ with col_acc4:
         st.switch_page("pages/justificantes.py")
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# Inicializar alumnos vacíos
-alumnos = []
-clase_info = {}
+#Endpoint resumen del turno actual 
+# --- 1. Resumen del turno actual ---
+st.markdown('<h2 class="section-title">📊 Resumen del Turno</h2>', unsafe_allow_html=True)
 
-# 3. Obtener alumnos desde backend si se seleccionó una clase
-if id_clase is not None:
-    try:
-        res_alumnos = requests.get(f"http://localhost:8000/api/profesor/clase/{id_clase}/estudiantes")
-        res_alumnos.raise_for_status()
-        resp = res_alumnos.json()
-        alumnos = resp.get("data", {}).get("estudiantes", [])
-        clase_info = resp.get("data", {}).get("clase", {})
-    except Exception as e:
-        st.error(f"Error al cargar estudiantes de clase: {e}")
-
-# Estadísticas de asistencia
-presentes = sum(1 for a in alumnos if a["estado_actual"] == "presente")
-ausentes = sum(1 for a in alumnos if a["estado_actual"] == "ausente")
-justificantes = sum(1 for a in alumnos if a["estado_actual"] == "justificante")
-total = len(alumnos)
+turno = st.selectbox("Selecciona turno", ["matutino", "vespertino"], index=0, key="turno_resumen")
 
 
-# Turno predeterminado
-turno = "matutino"
-
-# Llamada al endpoint de resumen
 try:
-    response = requests.get(f"{API_BASE_URL}/asistencias/resumen", params={"turno": turno})
-    if response.status_code == 200:
-        resumen = response.json()
-        total = resumen["totalAlumnos"]
-        presentes = resumen["presentes"]
-        ausentes = resumen["ausentes"]
-        justificantes = resumen["justificantes"]
-        porcentaje = resumen["porcentaje"]
-    else:
-        st.error("⚠️ No se pudo obtener el resumen de asistencia.")
-        total = presentes = ausentes = justificantes = porcentaje = 0
+    response = requests.get(f"{API_BASE_URL}asistencias/resumen", params={"turno": turno}, timeout=6)
+    response.raise_for_status()
+    resumen = response.json() or {}
 except Exception as e:
-    st.error(f"❌ Error de conexión al backend: {e}")
-    total = presentes = ausentes = justificantes = porcentaje = 0
+    st.error(f"❌ Error al obtener resumen del turno: {e}")
+    resumen = {"totalAlumnos": 0, "presentes": 0, "justificantes": 0, "ausentes": 0, "porcentaje": 0}
 
-st.markdown('<h2 class="section-title">📈 Estadísticas de la Clase</h2>', unsafe_allow_html=True)
-col_est1, col_est2, col_est3 = st.columns([1, 1, 2])
+# Mostrar métricas en columnas
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("👥 Total", resumen.get("totalAlumnos"))
+col2.metric("✅ Presentes", resumen.get("presentes"))
+col3.metric("📄 Justificantes", resumen.get("justificantes"))
+col4.metric("❌ Ausentes", resumen.get("ausentes"))
+col5.metric("📊 % Asistencia", f"{resumen.get('porcentaje')}%")
 
-with col_est1:
-    st.markdown(f'<div class="metric-card"><div class="metric-value">{total}</div><div class="metric-label">Total Alumnos</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-card"><div class="metric-value">{presentes}</div><div class="metric-label">Presentes</div></div>', unsafe_allow_html=True)
-with col_est2:
-    st.markdown(f'<div class="metric-card"><div class="metric-value">{ausentes}</div><div class="metric-label">Ausentes</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-card"><div class="metric-value">{justificantes}</div><div class="metric-label">Justificantes</div></div>', unsafe_allow_html=True)
-with col_est3:
-    df_est = pd.DataFrame([
-        {"Estado": "Presentes", "Cantidad": presentes},
-        {"Estado": "Ausentes", "Cantidad": ausentes},
-        {"Estado": "Justificantes", "Cantidad": justificantes}
-    ])
-    fig = px.pie(df_est, values="Cantidad", names="Estado", title="Distribución de Asistencia",
-                 color_discrete_sequence=['#2563eb', '#ef4444', '#f59e0b'])
-    fig.update_layout(font_family="Inter", title_font_size=16, title_font_color='#1f2937',
-                      showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-    st.plotly_chart(fig, use_container_width=True)
+# --- 2. Resumen General de la Escuela ---
+st.markdown('<h2 class="section-title">🏫 Resumen General</h2>', unsafe_allow_html=True)
+
+turno_general = st.selectbox("Selecciona turno", ["matutino", "vespertino"], index=0, key="turno_resumen_general")
+
+try:
+    response = requests.get(f"{API_BASE_URL}asistencias/resumen-general", params={"turno": turno_general}, timeout=6)
+    response.raise_for_status()
+    resumen_general = response.json() or {}
+except Exception as e:
+    st.error(f"❌ Error al obtener resumen general: {e}")
+    resumen_general = {"totalAlumnos": 0, "presentes": 0, "justificantes": 0, "ausentes": 0, "porcentaje": 0}
+
+# Mostrar métricas generales
+gcol1, gcol2, gcol3, gcol4, gcol5 = st.columns(5)
+gcol1.metric("👥 Total (escuela)", resumen_general.get("totalAlumnos", 0))
+gcol2.metric("✅ Presentes", resumen_general.get("presentes", 0))
+gcol3.metric("📄 Justificantes", resumen_general.get("justificantes", 0))
+gcol4.metric("❌ Ausentes", resumen_general.get("ausentes", 0))
+gcol5.metric("📊 % Asistencia", f"{resumen_general.get('porcentaje', 0)}%")
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# --- 3. Resumen por Clase ---
+st.markdown('<h2 class="section-title">📘 Resumen por Clase</h2>', unsafe_allow_html=True)
+# pasar fecha opcional: usar hoy en formato YYYY-MM-DD
+fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+
+try:
+    response = requests.get(f"{API_BASE_URL}asistencias/por-clase", params={"fecha": fecha_hoy}, timeout=8)
+    response.raise_for_status()
+    clases_resumen = response.json()
+except Exception as e:
+    st.error(f"❌ Error al obtener resumen por clase: {e}")
+    clases_resumen = []
+
+if clases_resumen:
+    # mostrarlas en grid de 2 columnas por fila
+    for i in range(0, len(clases_resumen), 2):
+        cols = st.columns(2)
+        for j, col in enumerate(cols):
+            idx = i + j
+            if idx >= len(clases_resumen):
+                break
+            clase = clases_resumen[idx]
+            with col:
+                nombre = clase.get("nombre_clase") or clase.get("nombre_materia") or "Clase"
+                grupo = clase.get("grupo", "")
+                presentes = int(clase.get("presentes", 0))
+                justificantes = int(clase.get("justificantes", 0))
+                ausentes = int(clase.get("ausentes", 0))
+                total_clase = presentes + justificantes + ausentes
+                porcentaje = clase.get("porcentaje", 0)
+
+                st.markdown(f"### {nombre} — {grupo}")
+                st.markdown(f"- 👥 **Total:** {total_clase}")
+                st.markdown(f"- ✅ **Presentes:** {presentes}")
+                st.markdown(f"- 📄 **Justificantes:** {justificantes}")
+                st.markdown(f"- ❌ **Ausentes:** {ausentes}")
+                st.markdown(f"- 📊 **% Asistencia:** {porcentaje}%")
+
+                # Pie chart
+                df_clase = pd.DataFrame([
+                    {"Estado": "Presentes", "Cantidad": presentes},
+                    {"Estado": "Ausentes", "Cantidad": ausentes},
+                    {"Estado": "Justificantes", "Cantidad": justificantes}
+                ])
+                fig = px.pie(
+                    df_clase,
+                    names="Estado",
+                    values="Cantidad",
+                    color_discrete_map={"Presentes": "#2563eb", "Ausentes": "#ef4444", "Justificantes": "#f59e0b"}
+                )
+                fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                st.plotly_chart(fig, width="stretch")
+        st.markdown("<hr>", unsafe_allow_html=True)
+else:
+    st.info("ℹ️ No hay clases registradas para la fecha.")
 
 
-
-#Backend 
-alumnos = []
-clase_info = {}
-
-if id_clase:
-    # Buscar la clase seleccionada
-    clase_info = next((c for c in clases if c["id_clase"] == id_clase), None)
-
-    if clase_info:
-        id_grupo = clase_info["id_grupo"]
-        try:
-            res_alumnos = requests.get(f"http://localhost:8000/api/estudiantes/grupo/{id_grupo}")
-            res_alumnos.raise_for_status()
-            alumnos = res_alumnos.json()
-        except Exception as e:
-            st.error(f"Error al obtener alumnos: {e}")
-    else:
-        st.warning("No se encontró la información de la clase seleccionada.")
-# Inicializar el estado si no existe
+#5 Lista de alumnos
+# --- Inicializar estado para ver todos los alumnos ---
 if "ver_todos_alumnos" not in st.session_state:
     st.session_state.ver_todos_alumnos = False
-#4 Lista de alumnos
+
+# --- Lista de Alumnos ---
 st.markdown('<h2 class="section-title">👨‍🎓 Lista de Alumnos</h2>', unsafe_allow_html=True)
 
+alumnos = []
+clase_info = None
+
+# Solo si hay clase seleccionada
+if id_clase:
+    # Buscar la info de la clase
+    clase_info = next((c for c in clases if c["id_clase"] == id_clase), None)
+    if clase_info:
+        id_grupo = clase_info["id_grupo"]
+
+        try:
+            # Llamada al endpoint para alumnos del grupo
+            res_alumnos = requests.get(f"http://localhost:8000/api/estudiantes/grupo/{id_grupo}")
+            res_alumnos.raise_for_status()
+            alumnos = res_alumnos.json()  # Se espera una lista de alumnos
+        except Exception as e:
+            st.error(f"❌ Error al obtener alumnos: {e}")
+    else:
+        st.warning("⚠️ No se encontró la información de la clase seleccionada.")
+
 if alumnos:
-    # Mostrar primeros 5 o todos según estado
+    # Mostrar primeros 5 o todos según el estado
     mostrar_alumnos = alumnos if st.session_state.ver_todos_alumnos else alumnos[:5]
 
     for alumno in mostrar_alumnos:
@@ -409,12 +475,17 @@ if alumnos:
                 unsafe_allow_html=True
             )
         with col_a2:
-            estado = alumno['estado_actual'].title()
-            if st.button(f"📋 {estado}", key=f"estado_{alumno['id_estudiante']}"):
+            estado = alumno.get('estado_actual', 'N/A').title()
+            if st.button(f"📋 {estado}", key=f"estado_{id_clase}_{alumno['id_estudiante']}"):
                 st.toast(f"Estado de {alumno['nombre']} actualizado", icon="✅")
         with col_a3:
-            if st.button("ℹ️ Detalles", key=f"info_{alumno['id_estudiante']}"):
-                st.info(f"Información detallada de {alumno['nombre']} {alumno['apellido']}")
+            if st.button("ℹ️ Detalles", key=f"info_{id_clase}_{alumno['id_estudiante']}"):
+                st.info(
+                    f"Nombre: {alumno['nombre']} {alumno['apellido']}\n"
+                    f"Matrícula: {alumno['matricula']}\n"
+                    f"No. Lista: {alumno['no_lista']}\n"
+                    f"Estado actual: {estado}"
+                )
 
     # Botón para alternar entre mostrar todos o menos
     if len(alumnos) > 5:
@@ -426,16 +497,13 @@ if alumnos:
             if st.button("⬇️ Ver más"):
                 st.session_state.ver_todos_alumnos = True
                 st.rerun()
-
 else:
-    st.warning("No hay alumnos registrados para este grupo.")
+    st.warning("⚠️ No hay alumnos registrados para este grupo.")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 
-
-
-# 5 Mapa de asientos dinámico
+# 6 Mapa de asientos dinámico
 st.markdown('<h2 class="section-title">🪑 Mapa de Asientos</h2>', unsafe_allow_html=True)
 
 cols = 6  # puedes cambiarlo a 5 u 8 según el ancho que prefieras
@@ -468,28 +536,7 @@ for i in range(rows):
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# 4 Resumen general (podrías obtenerlo de otro endpoint si lo implementas)
-st.markdown('<h2 class="section-title">📊 Resumen General del Día</h2>', unsafe_allow_html=True)
-col_r1, col_r2 = st.columns([1, 1])
-with col_r1:
-    st.markdown(f"""
-    <div class="info-card">
-        <h4 style="color: #2563eb;">📈 Estadísticas Generales</h4>
-        <p><strong>Total de estudiantes:</strong> {total}</p>
-        <p><strong>Presentes:</strong> {presentes}</p>
-        <p><strong>Ausentes:</strong> {ausentes}</p>
-        <p><strong>Justificantes:</strong> {justificantes}</p>
-    </div>
-    """, unsafe_allow_html=True)
-with col_r2:
-    fig2 = px.pie(pd.DataFrame([
-        {"Estado": "Presentes", "Cantidad": presentes},
-        {"Estado": "Ausentes", "Cantidad": ausentes},
-        {"Estado": "Justificantes", "Cantidad": justificantes}
-    ]), values="Cantidad", names="Estado", title="Resumen General del Día",
-               color_discrete_sequence=['#2563eb', '#ef4444', '#f59e0b'])
-    fig2.update_layout(font_family="Inter", title_font_size=16, title_font_color='#1f2937')
-    st.plotly_chart(fig2, use_container_width=True)
+
 
 # QR y footer
 st.markdown("<hr>", unsafe_allow_html=True)

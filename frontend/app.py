@@ -1,40 +1,23 @@
 import streamlit as st
 import requests
 
-# URL de tu API FastAPI
-API_URL = "http://127.0.0.1:8000/api/login/"
+API_URL = "http://localhost:8000/api/login"
 
-st.set_page_config(page_title="Control de Actividades - Login", page_icon="🔐", layout="centered")
+st.set_page_config(page_title="Login", page_icon="🔐", initial_sidebar_state="collapsed")
 
-# --- ESTILOS CSS ---
-st.markdown("""
-    <style>
-    body {
-        background: linear-gradient(135deg, #1f2937, #3b82f6);
-        color: white;
-    }
-    .stTextInput>div>div>input {
-        background-color: #f9fafb;
-        border-radius: 10px;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #3b82f6;
-        color: white;
-        font-weight: bold;
-        border-radius: 10px;
-        padding: 10px;
-    }
-    .stButton>button:hover {
-        background-color: #2563eb;
-        transform: scale(1.02);
-    }
-    .login-box {
-        background-color: transparent;
-        box-shadow: none;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- Ocultar menú y footer ---
+hide_menu = """
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_menu, unsafe_allow_html=True)
+
+# --- Si ya hay sesión, mandar directo al panel ---
+if "usuario" in st.session_state:
+    st.switch_page("pages/panel.py")
 
 # --- LOGIN UI ---
 st.markdown("<h2 style='text-align:center'>🔐 Iniciar Sesión</h2>", unsafe_allow_html=True)
@@ -53,8 +36,8 @@ if st.button("Ingresar"):
             if response.status_code == 200:
                 data = response.json()
                 if data.get("success"):
-                    st.success(f"✅ Bienvenido {data['data']['usuario']['nombre_completo']}")
                     st.session_state["usuario"] = data["data"]["usuario"]
+                    st.success(f"✅ Bienvenido {data['data']['usuario']['nombre_completo']}")
                     st.switch_page("pages/panel.py")
                 else:
                     st.error("❌ Usuario o contraseña incorrectos")
@@ -68,8 +51,3 @@ if st.button("Ingresar"):
         st.warning("⚠️ Ingresa tu usuario y contraseña")
 
 st.markdown("</div>", unsafe_allow_html=True)
-
-# --- Si ya hay sesión ---
-if "usuario" in st.session_state:
-    st.write("### Panel de Control")
-    st.json(st.session_state["usuario"])
