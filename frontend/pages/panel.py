@@ -4,6 +4,10 @@ import plotly.express as px
 from datetime import datetime
 import requests
 import math
+import plotly.io as pio
+import uuid
+import streamlit.components.v1 as components
+
 
 
 API_BASE_URL = "http://localhost:8000/api/"
@@ -320,7 +324,8 @@ else:
 # Botones de acción
 col_acc1, col_acc2, col_acc3, col_acc4 = st.columns(4)
 with col_acc1:
-    st.button("📊 Ver Todas las Clases")
+    if st.button("📊 Ver Todas las Clases"):
+        st.switch_page("pages/vertodasclases.py")
 with col_acc2:
     if st.button("📢 Crear Nuevo Aviso"):
         st.switch_page("pages/crearaviso.py")
@@ -378,6 +383,7 @@ gcol4.metric("❌ Ausentes", resumen_general.get("ausentes", 0))
 gcol5.metric("📊 % Asistencia", f"{resumen_general.get('porcentaje', 0)}%")
 st.markdown("<hr>", unsafe_allow_html=True)
 
+
 # --- 3. Resumen por Clase ---
 st.markdown('<h2 class="section-title">📘 Resumen por Clase</h2>', unsafe_allow_html=True)
 # pasar fecha opcional: usar hoy en formato YYYY-MM-DD
@@ -391,48 +397,134 @@ except Exception as e:
     st.error(f"❌ Error al obtener resumen por clase: {e}")
     clases_resumen = []
 
-if clases_resumen:
-    # mostrarlas en grid de 2 columnas por fila
-    for i in range(0, len(clases_resumen), 2):
-        cols = st.columns(2)
-        for j, col in enumerate(cols):
-            idx = i + j
-            if idx >= len(clases_resumen):
-                break
-            clase = clases_resumen[idx]
-            with col:
-                nombre = clase.get("nombre_clase") or clase.get("nombre_materia") or "Clase"
-                grupo = clase.get("grupo", "")
-                presentes = int(clase.get("presentes", 0))
-                justificantes = int(clase.get("justificantes", 0))
-                ausentes = int(clase.get("ausentes", 0))
-                total_clase = presentes + justificantes + ausentes
-                porcentaje = clase.get("porcentaje", 0)
 
-                st.markdown(f"### {nombre} — {grupo}")
-                st.markdown(f"- 👥 **Total:** {total_clase}")
-                st.markdown(f"- ✅ **Presentes:** {presentes}")
-                st.markdown(f"- 📄 **Justificantes:** {justificantes}")
-                st.markdown(f"- ❌ **Ausentes:** {ausentes}")
-                st.markdown(f"- 📊 **% Asistencia:** {porcentaje}%")
-
-                # Pie chart
-                df_clase = pd.DataFrame([
-                    {"Estado": "Presentes", "Cantidad": presentes},
-                    {"Estado": "Ausentes", "Cantidad": ausentes},
-                    {"Estado": "Justificantes", "Cantidad": justificantes}
-                ])
-                fig = px.pie(
-                    df_clase,
-                    names="Estado",
-                    values="Cantidad",
-                    color_discrete_map={"Presentes": "#2563eb", "Ausentes": "#ef4444", "Justificantes": "#f59e0b"}
-                )
-                fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-                st.plotly_chart(fig, width="stretch")
-        st.markdown("<hr>", unsafe_allow_html=True)
-else:
+if not clases_resumen:
     st.info("ℹ️ No hay clases registradas para la fecha.")
+else:
+    # Generar HTML completo con Swiper.js
+    slides_html = ""
+    for clase in clases_resumen:
+        nombre = clase.get("nombre_clase") or clase.get("nombre_materia") or "Clase"
+        grupo = clase.get("grupo", "")
+        presentes = int(clase.get("presentes", 0))
+        justificantes = int(clase.get("justificantes", 0))
+        ausentes = int(clase.get("ausentes", 0))
+        total_clase = presentes + justificantes + ausentes
+        porcentaje = clase.get("porcentaje", 0)
+
+        df_clase = pd.DataFrame([
+            {"Estado": "Presentes", "Cantidad": presentes},
+            {"Estado": "Ausentes", "Cantidad": ausentes},
+            {"Estado": "Justificantes", "Cantidad": justificantes}
+        ])
+        df_clase["Estado"] = pd.Categorical(df_clase["Estado"], categories=["Presentes", "Ausentes", "Justificantes"])
+
+        fig = px.pie(
+            df_clase,
+            names="Estado",
+            values="Cantidad",
+            color="Estado",
+            color_discrete_map={
+                "Presentes": "#0ae73a",
+                "Ausentes": "#e61010",
+                "Justificantes": "#f3f70c"
+            }
+        )
+        fig.update_layout(
+            margin=dict(t=10, b=10, l=10, r=10),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+        )
+        chart_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
+
+        slides_html += f"""
+        <div class="swiper-slide">
+            <div class="slide-card">
+                <h4>{nombre} — {grupo}</h4>
+                <p>👥 Total: {total_clase}</p>
+                <p>✅ Presentes: {presentes}</p>
+                <p>📄 Justificantes: {justificantes}</p>
+                <p>❌ Ausentes: {ausentes}</p>
+                <p>📊 % Asistencia: {porcentaje}%</p>
+                {chart_html}
+            </div>
+        </div>
+        """
+
+    
+    html = f"""
+    <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro&display=swap" rel="stylesheet">
+    <style>
+        .swiper-container {{
+            width: 100%;
+            padding: 30px 0;
+        }}
+        .swiper-wrapper {{
+            display: flex;
+            align-items: stretch;
+        }}
+        .swiper-slide {{
+            flex-shrink: 0;
+            width: 440px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: center;
+        }}
+        .slide-card {{
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            width: 100%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            font-family: "Source Sans Pro", sans-serif;
+            color: #333;
+        }}
+        .slide-card h4 {{
+            font-family: "Source Sans Pro", sans-serif;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }}
+        .slide-card p {{
+            font-family: "Source Sans Pro", sans-serif;
+            margin: 4px 0;
+            font-size: 15px;
+        }}
+    </style>
+
+    <div class="swiper-container">
+        <div class="swiper-wrapper">
+            {slides_html}
+        </div>
+        <!-- Controles -->
+        <div class="swiper-button-prev"></div>
+        <div class="swiper-button-next"></div>
+        <div class="swiper-pagination"></div>
+    </div>
+
+    <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+    <script>
+        const swiper = new Swiper('.swiper-container', {{
+            slidesPerView: 1,
+            spaceBetween: 20,
+            loop: true,
+            pagination: {{
+                el: '.swiper-pagination',
+                clickable: true,
+            }},
+            navigation: {{
+                nextEl: '.swiper-button-next',
+                prevEl: '.swiper-button-prev',
+            }},
+            autoplay: {{
+                delay: 4000,
+                disableOnInteraction: false,
+            }},
+        }});
+    </script>
+    """
+
+    components.html(html, height=720)
 
 
 #5 Lista de alumnos
@@ -545,7 +637,7 @@ with col_qr1:
     st.markdown("""
     <div class="info-card">
         <h4 style="color: #2563eb;">📱 Código QR para Estudiantes</h4>
-        <p>Los estudiantes pueden escanear el código QR para registrar su asistencia de forma autónoma.</p>
+        <p>Ingresa matricula de estudiante para generar QR</p>
     </div>
     """, unsafe_allow_html=True)
 with col_qr2:

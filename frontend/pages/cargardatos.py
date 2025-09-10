@@ -9,7 +9,7 @@ API_BASE = "http://localhost:8000/api/importar"
 # ---------- ESTADOS INICIALES ----------
 if 'tipo_datos' not in st.session_state:
     st.session_state.tipo_datos = ""
-if 'mostrar_form_nuevo' not in st.session_state:
+if '            mostrar_form_nuevo' not in st.session_state:
     st.session_state.mostrar_form_nuevo = False
 if 'nuevo_estudiante' not in st.session_state:
     st.session_state.nuevo_estudiante = {
@@ -44,7 +44,11 @@ col1, col2, col3 = st.columns([1, 4, 1])
 with col1:
     st.image("assets/logo1.jpeg", width=80)
 with col2:
-    st.markdown("## UA PREP. 'GRAL. LÁZARO CÁRDENAS DEL RÍO'")
+    st.markdown("""<div class="custom-header">
+    <div style="display: flex; align-items: center; justify-content: center;">
+        <h1 class="header-title">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+    </div>
+    </div>""", unsafe_allow_html=True)
 with col3:
     st.image("assets/logo1.jpeg", width=80)
 
