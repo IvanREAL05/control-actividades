@@ -53,7 +53,7 @@ async def get_pool() -> aiomysql.Pool:
         await init_db_pool()
     return pool
 
-# Funciones helper para operaciones comunes
+# Funciones helper para op
 async def fetch_one(query: str, params=None):
     """Ejecuta una query y retorna un solo resultado"""
     pool_instance = await get_pool()
