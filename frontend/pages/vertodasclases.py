@@ -352,9 +352,9 @@ horariosVespertinos = [
     {'id': '2', 'nombre': 'Bloque 2', 'hora': '14:20:00 - 15:05:00', 'inicio': '14:20:00', 'fin': '15:05:00'},
     {'id': '3', 'nombre': 'Bloque 3', 'hora': '15:05:00 - 15:50:00', 'inicio': '15:05:00', 'fin': '15:50:00'},
     {'id': '4', 'nombre': 'Bloque 4', 'hora': '15:50:00 - 16:35:00', 'inicio': '15:50:00', 'fin': '16:35:00'},
-    {'id': '5', 'nombre': 'Bloque 5', 'hora': '17:05:00 - 17:50:00', 'inicio': '17:05:00', 'fin': '17:50:00'},  # Corregido "Blouqe"
+    {'id': '5', 'nombre': 'Bloque 5', 'hora': '17:05:00 - 17:50:00', 'inicio': '17:05:00', 'fin': '17:50:00'}, 
     {'id': '6', 'nombre': 'Bloque 6', 'hora': '17:50:00 - 18:35:00', 'inicio': '17:50:00', 'fin': '18:35:00'},
-    {'id': '7', 'nombre': 'Bloque 7', 'hora': '18:35:00 - 19:20:00', 'inicio': '18:35:00', 'fin': '19:20:00'}  # Corregido hora de inicio
+    {'id': '7', 'nombre': 'Bloque 7', 'hora': '18:35:00 - 19:20:00', 'inicio': '18:35:00', 'fin': '19:20:00'}  
 ]
 
 # Inicializar estado
@@ -376,7 +376,6 @@ st.markdown("""
         </div>
         <div style="flex: 1; text-align: center;">
             <h1 class="header-title">UA PREP. 'GRAL. LÁZARO CÁRDENAS DEL RÍO'</h1>
-            <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Sistema de Gestión de Clases</p>
         </div>
         <div style="width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
             <span style="font-size: 2rem;">📚</span>

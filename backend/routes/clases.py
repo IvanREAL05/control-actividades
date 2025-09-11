@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from utils.fecha import obtener_fecha_hora_cdmx
 from config.db import fetch_all, fetch_one
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 
 router = APIRouter()
 
@@ -116,13 +116,20 @@ async def obtener_todas_clases_hoy():
 # =======================
 # /api/clases/por-bloque
 # =======================
-
 @router.get("/por-bloque")
 async def clases_por_bloque(horaInicio: str = Query(...), horaFin: str = Query(...), dia: str = Query(...)):
     if not horaInicio or not horaFin or not dia:
         raise HTTPException(status_code=400, detail="Faltan parámetros horaInicio, horaFin o dia")
+
     try:
         fecha_hoy = obtener_fecha_hora_cdmx()["fecha"]
+        dia = dia.capitalize()  # MySQL enum: 'Jueves', 'Viernes', etc.
+
+        # 👇 Ya no convertimos a time()
+        hora_inicio_str = horaInicio
+        hora_fin_str = horaFin
+
+        print("📥 Parámetros SQL:", fecha_hoy, dia, hora_inicio_str, hora_fin_str)  # Debug
 
         query = """
             SELECT 
@@ -146,19 +153,24 @@ async def clases_por_bloque(horaInicio: str = Query(...), horaFin: str = Query(.
             JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo'
             LEFT JOIN asistencia a 
                 ON a.id_clase = c.id_clase AND a.id_estudiante = e.id_estudiante AND a.fecha = %s
-            WHERE LOWER(hc.dia) = LOWER(%s)
-              AND hc.hora_fin > %s
+            WHERE hc.dia = %s
               AND hc.hora_inicio < %s
+              AND hc.hora_fin > %s
             GROUP BY c.id_clase, m.nombre, c.nrc, g.nombre, g.id_grupo, p.nombre, hc.hora_inicio, hc.hora_fin
             ORDER BY hc.hora_inicio ASC
         """
-        result = await fetch_all(query, (fecha_hoy, dia, horaInicio, horaFin))
-        
-        # Convertir los campos de hora
+
+        # 👇 Pasamos todo como str
+        result = await fetch_all(query, (fecha_hoy, dia, hora_fin_str, hora_inicio_str))
+
+        print("📦 Resultado de clases:", result)  # Debug
+
         for clase in result:
             clase['hora_inicio'] = convertir_a_hora(clase['hora_inicio'])
-            clase['hora_fin']    = convertir_a_hora(clase['hora_fin'])
+            clase['hora_fin'] = convertir_a_hora(clase['hora_fin'])
+
         return result
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener clases por bloque: {str(e)}")
     
