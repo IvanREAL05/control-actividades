@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 import aiomysql
-from utils.fecha import obtener_fecha_hora_cdmx, convertir_fecha_a_cdmx
+from utils.fecha import obtener_fecha_hora_cdmx, convertir_fecha_a_cdmx, obtener_fecha_hora_cdmx_completa
 from config.db import fetch_one, fetch_all, execute_query
+
 
 router = APIRouter()
 
@@ -285,8 +286,8 @@ async def progreso_materias(id_alumno: int):
         raise HTTPException(status_code=500, detail="Error al obtener resumen por materias")
 
 
-# Resumen de clase para docente (movil)
-@router.get("/resumen-clase/{id_clase}")
+# Resumen de clase para docente
+@router.get("/estadisticas-asistencias/{id_clase}")
 async def resumen_clase(id_clase: int):
     try:
         fecha_actual = obtener_fecha_hora_cdmx()["fecha"]
@@ -372,3 +373,102 @@ async def resumen_clase(id_clase: int):
     except Exception as e:
         print("Error en /resumen-clase/:", e)
         raise HTTPException(status_code=500, detail="Error al obtener resumen de clase")
+    
+# Resumen de actividades en app movil
+@router.get("/clases-actividades/{id_clase}/resumen")
+async def resumen_clase(id_clase: int):
+    """
+    Devuelve un resumen analítico de actividades de una clase
+    en formato estructurado.
+    """
+    # 🔹 Totales de actividades
+    query_totales = """
+        SELECT COUNT(*) AS total_actividades, MAX(valor_maximo) AS max_valor
+        FROM actividad
+        WHERE id_clase=%s
+    """
+    totales = await fetch_one(query_totales, (id_clase,))
+    if not totales:
+        raise HTTPException(status_code=404, detail="Clase no encontrada")
+
+    # 🔹 Estado de entregas
+    query_entregas = """
+        SELECT ae.estado, COUNT(*) AS cantidad
+        FROM actividad_estudiante ae
+        INNER JOIN actividad a ON ae.id_actividad = a.id_actividad
+        WHERE a.id_clase=%s
+        GROUP BY ae.estado
+    """
+    entregas_raw = await fetch_all(query_entregas, (id_clase,))
+    entregas = {row["estado"]: row["cantidad"] for row in entregas_raw}
+
+    # 🔹 Calificaciones
+    query_calif = """
+        SELECT ae.calificacion
+        FROM actividad_estudiante ae
+        INNER JOIN actividad a ON ae.id_actividad = a.id_actividad
+        WHERE a.id_clase=%s AND ae.calificacion IS NOT NULL
+    """
+    calif_rows = await fetch_all(query_calif, (id_clase,))
+    calificaciones = [row["calificacion"] for row in calif_rows]
+
+    if calificaciones:
+        promedio = sum(calificaciones) / len(calificaciones)
+        distribucion = {
+            "0-5": sum(1 for c in calificaciones if c <= 5),
+            "6-7": sum(1 for c in calificaciones if 6 <= c <= 7),
+            "8-10": sum(1 for c in calificaciones if c >= 8)
+        }
+    else:
+        promedio, distribucion = 0, {"0-5": 0, "6-7": 0, "8-10": 0}
+
+    # 🔹 Actividades más y menos entregadas
+    query_entregadas = """
+        SELECT a.titulo, COUNT(*) AS total
+        FROM actividad_estudiante ae
+        INNER JOIN actividad a ON ae.id_actividad = a.id_actividad
+        WHERE a.id_clase=%s AND ae.estado='entregado'
+        GROUP BY a.titulo
+        ORDER BY total DESC
+    """
+    entregadas = await fetch_all(query_entregadas, (id_clase,))
+    mas_entregada = entregadas[0]["titulo"] if entregadas else None
+    menos_entregada = entregadas[-1]["titulo"] if entregadas else None
+
+    # 🔹 Actividad con mayor y menor promedio
+    query_promedios = """
+        SELECT a.titulo, AVG(ae.calificacion) AS promedio
+        FROM actividad_estudiante ae
+        INNER JOIN actividad a ON ae.id_actividad = a.id_actividad
+        WHERE a.id_clase=%s AND ae.calificacion IS NOT NULL
+        GROUP BY a.titulo
+        ORDER BY promedio DESC
+    """
+    promedios = await fetch_all(query_promedios, (id_clase,))
+    mayor_promedio = promedios[0]["titulo"] if promedios else None
+    menor_promedio = promedios[-1]["titulo"] if promedios else None
+    fecha_info = obtener_fecha_hora_cdmx()
+    fecha_legible = f"{fecha_info['dia']}, {fecha_info['fecha'].strftime('%d/%m/%Y')} {fecha_info['hora']}"
+
+    return {
+        "fecha_consulta": fecha_legible,
+        "totales": {
+            "actividades": totales["total_actividades"],
+            "valor_maximo_promedio": totales["max_valor"],
+        },
+        "estado_entregas": {
+            "pendiente": entregas.get("pendiente", 0),
+            "entregado": entregas.get("entregado", 0),
+            "no_entregado": entregas.get("no_entregado", 0),
+        },
+        "calificaciones": {
+            "promedio_general": round(promedio, 2),
+            "distribucion": distribucion,
+        },
+        "mejores_peores": {
+            "mas_entregada": mas_entregada,
+            "menos_entregada": menos_entregada,
+            "mayor_promedio": mayor_promedio,
+            "menor_promedio": menor_promedio,
+        }
+    }

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from datetime import datetime
 import aiomysql
@@ -8,10 +8,11 @@ from utils.fecha import obtener_fecha_hora_cdmx_completa, convertir_fecha_a_cdmx
 import os
 import logging
 from cryptography.fernet import Fernet, InvalidToken
-
-
+from typing import List, Optional
 
 router = APIRouter()
+
+logger = logging.getLogger("api_actividades")
 
 # Schema para crear o actualizar actividad
 class ActividadCreate(BaseModel):
@@ -69,7 +70,8 @@ async def crear_actividad(data: ActividadCreate):
 @router.put("/{id_actividad}")
 async def actualizar_actividad(id_actividad: int, data: ActividadCreate):
     try:
-        fecha_entrega_completa = f"{data.fecha_entrega} {data.hora_entrega}"
+        fecha_str = data.fecha_entrega.split(" ")[0]
+        fecha_entrega_completa = f"{fecha_str} {data.hora_entrega}"
 
         query = """
             UPDATE actividad
@@ -429,3 +431,62 @@ async def actualizar_estado_estudiante(payload: EstadoEstudianteRequest):
             status_code=500,
             detail=f"Error interno al actualizar estado: {str(e)}"
         )
+    
+# Modelo de respuesta
+class ActividadOut(BaseModel):
+    id_actividad: int
+    titulo: str
+    descripcion: Optional[str]
+    fecha_entrega: str
+    fecha_creacion: str
+    valor_maximo: float
+    estado_estudiante: Optional[str] = None  # pendiente, entregado, no entregado
+
+@router.get("/{id_clase}/actividades-recientes", response_model=List[ActividadOut])
+async def get_actividades_recientes(
+    id_clase: int,
+    id_estudiante: Optional[int] = Query(None, description="ID del estudiante (opcional)")
+):
+    """
+    Retorna las últimas 5 actividades de la clase.
+    Si se pasa id_estudiante, también devuelve su estado de entrega.
+    """
+    try:
+        query_actividades = """
+        SELECT id_actividad, titulo, descripcion, fecha_entrega, fecha_creacion, valor_maximo
+        FROM actividad
+        WHERE id_clase = %s
+        ORDER BY fecha_creacion DESC
+        LIMIT 5
+        """
+        actividades = await fetch_all(query_actividades, (id_clase,))
+        resultado = []
+
+        for act in actividades:
+            estado = None
+            if id_estudiante:
+                query_estado = """
+                SELECT estado 
+                FROM actividad_estudiante 
+                WHERE id_actividad = %s AND id_estudiante = %s
+                """
+                registro = await fetch_all(query_estado, (act["id_actividad"], id_estudiante))
+                if registro:
+                    estado = registro[0]["estado"]
+
+            resultado.append({
+                "id_actividad": act["id_actividad"],
+                "titulo": act["titulo"],
+                "descripcion": act["descripcion"],
+                "fecha_entrega": convertir_fecha_a_cdmx(act["fecha_entrega"]),
+                "fecha_creacion": convertir_fecha_a_cdmx(act["fecha_creacion"]),
+                "valor_maximo": float(act["valor_maximo"]),
+                "estado_estudiante": estado
+            })
+
+        logger.info(f"✅ Actividades obtenidas para clase {id_clase}, total: {len(resultado)}")
+        return resultado
+
+    except Exception as e:
+        logger.error(f"❌ Error al obtener actividades: {e}")
+        return []

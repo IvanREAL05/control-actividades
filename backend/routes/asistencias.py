@@ -843,3 +843,77 @@ async def generar_excel_general(
     except Exception as error:
         logger.error(f"❌ Error en excel-general: {error}")
         raise HTTPException(status_code=500, detail="Error al generar excel")
+    
+
+# ✅ Función auxiliar para inicializar asistencias de una clase
+async def inicializar_asistencias(id_clase: int):
+    """
+    Inserta asistencias 'ausente' para todos los estudiantes de la clase
+    si aún no existen registros para la fecha actual.
+    """
+    datos_fecha = obtener_fecha_hora_cdmx()
+    hoy = datos_fecha["fecha"]
+
+    # 1️⃣ Obtener grupo de la clase
+    query_grupo = "SELECT id_grupo FROM clase WHERE id_clase = %s"
+    grupo = await fetch_all(query_grupo, (id_clase,))
+    if not grupo:
+        return
+    id_grupo = grupo[0]["id_grupo"]
+
+    # 2️⃣ Obtener estudiantes del grupo
+    query_estudiantes = "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s"
+    estudiantes = await fetch_all(query_estudiantes, (id_grupo,))
+
+    # 3️⃣ Insertar asistencia como 'ausente' si no existe
+    for est in estudiantes:
+        query_insert = """
+            INSERT INTO asistencia (id_estudiante, id_clase, fecha, estado)
+            SELECT %s, %s, %s, %s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM asistencia 
+                WHERE id_estudiante = %s AND id_clase = %s AND fecha = %s
+            )
+        """
+        await execute_query(query_insert, (
+            est["id_estudiante"], id_clase, hoy, "ausente",
+            est["id_estudiante"], id_clase, hoy
+        ))
+
+# ✅ Endpoint: /api/asistencia/clase/{id_clase}
+@router.get("/clase/{id_clase}")
+async def obtener_asistencia_clase(id_clase: int):
+    try:
+        # Inicializar asistencias
+        await inicializar_asistencias(id_clase)
+
+        # Fecha local en CDMX
+        datos_fecha = obtener_fecha_hora_cdmx()
+        hoy = datos_fecha["fecha"]
+
+        # Consultar asistencia de los estudiantes
+        query = """
+            SELECT 
+                e.id_estudiante,
+                e.matricula,
+                e.nombre,
+                e.apellido,
+                e.no_lista,
+                COALESCE(a.estado, 'ausente') AS estado
+            FROM estudiante e
+            LEFT JOIN asistencia a 
+                ON e.id_estudiante = a.id_estudiante 
+                AND a.id_clase = %s 
+                AND a.fecha = %s
+            WHERE e.id_grupo = (
+                SELECT id_grupo FROM clase WHERE id_clase = %s
+            )
+            ORDER BY e.no_lista
+        """
+        rows = await fetch_all(query, (id_clase, hoy, id_clase))
+
+        return rows
+
+    except Exception as e:
+        print("❌ Error en /api/asistencia/clase/{id_clase}:", str(e))
+        raise HTTPException(status_code=500, detail="Error al obtener asistencia de la clase")  
