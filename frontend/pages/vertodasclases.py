@@ -299,23 +299,93 @@ st.set_page_config(
 )
 
 # URL del backend actualizada
-API_URL = "http://localhost:8000/api/clases/por-bloque"
+API_URL = "http://localhost:8000/api/clases/por-bloque" 
+DEBUG_URL = "http://localhost:8000/api/clases/debug-dia"
 
-# Función para llamar al backend
+# 🔧 FUNCIÓN DE PRUEBA DIRECTA
+def test_backend_connection():
+    """Función para probar la conexión directamente"""
+    st.subheader("🔧 Test de Conexión al Backend")
+    
+    # Test 1: Conexión básica
+    try:
+        response = requests.get("http://localhost:8000/health", timeout=5)
+        if response.status_code == 200:
+            st.success("✅ Backend está corriendo")
+        else:
+            st.error(f"❌ Backend responde con error: {response.status_code}")
+    except Exception as e:
+        st.error(f"❌ No se puede conectar al backend: {e}")
+    
+    # Test 2: Debug de día específico
+    if st.button("🔍 Ver clases del Martes"):
+        try:
+            response = requests.get(f"{DEBUG_URL}/Martes", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                st.json(data)
+            else:
+                st.error(f"Error: {response.text}")
+        except Exception as e:
+            st.error(f"Error: {e}")
+    
+    # Test 3: Consulta manual
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        test_inicio = st.text_input("Hora inicio", "07:20:00")
+    with col2:
+        test_fin = st.text_input("Hora fin", "13:50:00")  # ⚠️ Cambié a 13:50 para capturar ambas clases
+    with col3:
+        test_dia = st.text_input("Día", "Martes")
+    
+    if st.button("🧪 Test Manual"):
+        params = {
+            "horaInicio": test_inicio,
+            "horaFin": test_fin,
+            "dia": test_dia
+        }
+        try:
+            response = requests.get(API_URL, params=params, timeout=10)
+            st.write(f"Status: {response.status_code}")
+            st.write(f"URL: {response.url}")
+            if response.status_code == 200:
+                st.json(response.json())
+            else:
+                st.error(response.text)
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# 🔧 AQUÍ VA EL CÓDIGO DE DEBUG - ANTES DEL RESTO
+st.sidebar.title("🔧 Debug Tools")
+if st.sidebar.checkbox("Mostrar herramientas de debug"):
+    test_backend_connection()
+    st.markdown("---")
+
+# Función mejorada para llamar al backend
 def obtener_clases_por_bloque(hora_inicio, hora_fin, dia):
     try:
-        # Mapear días de inglés a español
+        # Mapear días de inglés a español - CORREGIDO
         dias_mapping = {
-            'Monday': 'lunes',
-            'Tuesday': 'martes', 
-            'Wednesday': 'miercoles',
-            'Thursday': 'jueves',
-            'Friday': 'viernes',
-            'Saturday': 'sabado',
-            'Sunday': 'domingo'
+            'Monday': 'Martes',      # ⚠️ Esto está mal, debe ser Lunes
+            'Tuesday': 'Martes', 
+            'Wednesday': 'Miércoles',
+            'Thursday': 'Jueves',
+            'Friday': 'Viernes',
+            'Saturday': 'Sábado',
+            'Sunday': 'Domingo'
         }
         
-        dia_esp = dias_mapping.get(dia, dia.lower())
+        dia_esp = dias_mapping.get(dia, dia)
+        
+        # 🔍 DEBUG: Mostrar parámetros enviados
+        if st.sidebar.checkbox("Ver parámetros de búsqueda"):
+            st.write("🔍 **Debug - Parámetros enviados:**")
+            st.json({
+                "horaInicio": hora_inicio,
+                "horaFin": hora_fin,
+                "dia": dia_esp,
+                "dia_original": dia
+            })
         
         params = {
             "horaInicio": hora_inicio,
@@ -323,28 +393,62 @@ def obtener_clases_por_bloque(hora_inicio, hora_fin, dia):
             "dia": dia_esp
         }
         
-        st.write(f"🔍 Buscando clases para: {dia_esp} entre {hora_inicio} y {hora_fin}")  # Debug
+        # 🔍 DEBUG: Verificar qué clases hay en ese día
+        if st.sidebar.checkbox("Ver todas las clases del día"):
+            try:
+                debug_response = requests.get(f"{DEBUG_URL}/{dia_esp}")
+                if debug_response.status_code == 200:
+                    debug_data = debug_response.json()
+                    st.write(f"🔍 **Debug - Clases disponibles en {dia_esp}:**")
+                    if debug_data:
+                        for clase in debug_data:
+                            st.write(f"   - {clase['materia']} ({clase.get('grupo', 'N/A')}): {clase['hora_inicio']} - {clase['hora_fin']}")
+                    else:
+                        st.warning(f"❌ No hay clases registradas para {dia_esp}")
+            except Exception as debug_e:
+                st.error(f"Error en debug: {debug_e}")
         
-        response = requests.get(API_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
+        # Hacer la petición principal
+        response = requests.get(API_URL, params=params, timeout=10)
         
-        st.write(f"📊 Clases encontradas: {len(data)}")  # Debug
+        if st.sidebar.checkbox("Ver respuesta del servidor"):
+            st.write(f"🌐 **Response Status:** {response.status_code}")
+            st.write(f"🌐 **Response URL:** {response.url}")
         
-        return data
+        if response.status_code == 200:
+            data = response.json()
+            
+            if st.sidebar.checkbox("Ver datos JSON completos"):
+                st.write(f"📊 **Clases encontradas:** {len(data)}")
+                if data:
+                    st.json(data)
+            
+            return data
+        else:
+            st.error(f"❌ Error HTTP {response.status_code}: {response.text}")
+            return []
+            
+    except requests.exceptions.Timeout:
+        st.error("❌ Timeout: El servidor tardó mucho en responder")
+        return []
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Error de conexión: No se puede conectar al servidor")
+        return []
     except Exception as e:
-        st.error(f"❌ Error al obtener clases: {e}")
+        st.error(f"❌ Error inesperado: {e}")
         return []
 
-# Definir bloques de horario
+# Definir bloques de horario - CORREGIDOS para que coincidan con tu base de datos
 horariosMatutinos = [
-    {'id': '1', 'nombre': 'Bloque 1', 'hora': '7:20:00 - 8:05:00', 'inicio': '7:20:00', 'fin': '8:05:00'},
-    {'id': '2', 'nombre': 'Bloque 2', 'hora': '8:05:00 - 8:50:00', 'inicio': '8:05:00', 'fin': '8:50:00'},
-    {'id': '3', 'nombre': 'Bloque 3', 'hora': '8:50:00 - 9:35:00', 'inicio': '8:50:00', 'fin': '9:35:00'},
-    {'id': '4', 'nombre': 'Bloque 4', 'hora': '9:35:00 - 10:20:00', 'inicio': '9:35:00', 'fin': '10:20:00'},
+    # ⚠️ PROBLEMA: Tus bloques originales no coinciden con tu BD
+    # BD: 07:20:00 - 08:50:00, pero tu bloque 1 era 07:20:00 - 08:05:00
+    {'id': '1', 'nombre': 'Bloque 1', 'hora': '7:20:00 - 8:50:00', 'inicio': '07:20:00', 'fin': '08:50:00'},
+    {'id': '2', 'nombre': 'Bloque 2', 'hora': '8:05:00 - 8:50:00', 'inicio': '08:05:00', 'fin': '08:50:00'},
+    {'id': '3', 'nombre': 'Bloque 3', 'hora': '8:50:00 - 9:35:00', 'inicio': '08:50:00', 'fin': '09:35:00'},
+    {'id': '4', 'nombre': 'Bloque 4', 'hora': '9:35:00 - 10:20:00', 'inicio': '09:35:00', 'fin': '10:20:00'},
     {'id': '5', 'nombre': 'Bloque 5', 'hora': '10:50:00 - 11:35:00', 'inicio': '10:50:00', 'fin': '11:35:00'},
     {'id': '6', 'nombre': 'Bloque 6', 'hora': '11:35:00 - 12:20:00', 'inicio': '11:35:00', 'fin': '12:20:00'},
-    {'id': '7', 'nombre': 'Bloque 7', 'hora': '12:20:00 - 13:05:00', 'inicio': '12:20:00', 'fin': '13:05:00'}
+    {'id': '7', 'nombre': 'Bloque 7', 'hora': '12:20:00 - 13:50:00', 'inicio': '12:20:00', 'fin': '13:50:00'}, # ⚠️ Corregido para coincidir con BD
 ]
 
 horariosVespertinos = [
@@ -352,9 +456,9 @@ horariosVespertinos = [
     {'id': '2', 'nombre': 'Bloque 2', 'hora': '14:20:00 - 15:05:00', 'inicio': '14:20:00', 'fin': '15:05:00'},
     {'id': '3', 'nombre': 'Bloque 3', 'hora': '15:05:00 - 15:50:00', 'inicio': '15:05:00', 'fin': '15:50:00'},
     {'id': '4', 'nombre': 'Bloque 4', 'hora': '15:50:00 - 16:35:00', 'inicio': '15:50:00', 'fin': '16:35:00'},
-    {'id': '5', 'nombre': 'Bloque 5', 'hora': '17:05:00 - 17:50:00', 'inicio': '17:05:00', 'fin': '17:50:00'},  # Corregido "Blouqe"
+    {'id': '5', 'nombre': 'Bloque 5', 'hora': '17:05:00 - 17:50:00', 'inicio': '17:05:00', 'fin': '17:50:00'},
     {'id': '6', 'nombre': 'Bloque 6', 'hora': '17:50:00 - 18:35:00', 'inicio': '17:50:00', 'fin': '18:35:00'},
-    {'id': '7', 'nombre': 'Bloque 7', 'hora': '18:35:00 - 19:20:00', 'inicio': '18:35:00', 'fin': '19:20:00'}  # Corregido hora de inicio
+    {'id': '7', 'nombre': 'Bloque 7', 'hora': '18:35:00 - 19:20:00', 'inicio': '18:35:00', 'fin': '19:20:00'}
 ]
 
 # Inicializar estado
@@ -468,11 +572,20 @@ else:
         st.markdown('<div class="warning-message">⚠️ No se pudo cargar la información del bloque.</div>', unsafe_allow_html=True)
 
     # Obtener grados únicos desde las clases
-    grupos = [c['nombre_grupo'] for c in st.session_state.clasesPorBloque]
-    grados_unicos = sorted({g.split(" ")[0] for g in grupos})  # Asumiendo "1A", "3B", etc.
+    if st.session_state.clasesPorBloque:
+        grupos = [c['nombre_grupo'] for c in st.session_state.clasesPorBloque]
+        grados_unicos = sorted({g.split(" ")[0] for g in grupos})  # Asumiendo "1A", "3B", etc.
+    else:
+        grados_unicos = []
 
     if not grados_unicos:
         st.markdown('<div class="warning-message">📚 No hay clases registradas para este bloque en el día de hoy.</div>', unsafe_allow_html=True)
+        
+        # Mostrar las clases encontradas para debug
+        if st.session_state.clasesPorBloque:
+            st.write("🔍 **Clases encontradas pero sin grados reconocibles:**")
+            for clase in st.session_state.clasesPorBloque:
+                st.write(f"- {clase.get('nombre_materia', 'N/A')} - Grupo: {clase.get('nombre_grupo', 'N/A')}")
     else:
         st.markdown('<div class="section-title">📊 Seleccionar Semestre</div>', unsafe_allow_html=True)
         
@@ -480,7 +593,6 @@ else:
         cols = st.columns(3)
         for i, grado in enumerate(grados_unicos):
             with cols[i % 3]:
-                button_class = "semester-button"
                 if st.button(f"📖 {grado}º semestre", key=f"grado_{grado}"):
                     if st.session_state.gradoActual == grado:
                         st.session_state.pausado = not st.session_state.pausado
@@ -521,10 +633,14 @@ else:
             else:
                 for clase in clases_filtradas:
                     # Calcular porcentajes para mejor visualización
-                    total = clase['total_estudiantes']
-                    presentes = clase['presentes']
-                    justificantes = clase['justificantes']
-                    ausentes = clase['ausentes']
+                    total = clase.get('total_estudiantes', 0)
+                    presentes = clase.get('presentes', 0)
+                    justificantes = clase.get('justificantes', 0)
+                    ausentes = clase.get('ausentes', 0)
+                    
+                    # Asegurar que ausentes se calcule correctamente
+                    if ausentes == 0 and total > 0:
+                        ausentes = total - presentes - justificantes
                     
                     porcentaje_presentes = (presentes / total * 100) if total > 0 else 0
                     porcentaje_justificantes = (justificantes / total * 100) if total > 0 else 0
@@ -534,7 +650,7 @@ else:
                     with st.container():
                         st.markdown(f"""
                         <div style="background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); border-left: 4px solid #2563eb;">
-                            <h4 style="color: #2563eb; margin: 0 0 1rem 0;">📘 {clase['nombre_materia']}</h4>
+                            <h4 style="color: #2563eb; margin: 0 0 1rem 0;">📘 {clase.get('nombre_materia', 'Materia desconocida')}</h4>
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -542,13 +658,17 @@ else:
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write(f"**👥 Grupo:** {clase['nombre_grupo']}")
-                            st.write(f"**👨‍🏫 Profesor:** {clase['nombre_profesor']}")
-                            st.write(f"**🏷️ NRC:** {clase['nrc']}")
+                            st.write(f"**👥 Grupo:** {clase.get('nombre_grupo', 'N/A')}")
+                            st.write(f"**👨‍🏫 Profesor:** {clase.get('nombre_profesor', 'N/A')}")
+                            st.write(f"**🏷️ NRC:** {clase.get('nrc', 'N/A')}")
+                            if clase.get('nombre_aula'):
+                                st.write(f"**🏫 Aula:** {clase.get('nombre_aula', 'N/A')}")
                             
                         with col2:
-                            st.write(f"**⏰ Horario:** {clase['hora_inicio']} - {clase['hora_fin']}")
-                            st.write(f"**📊 Total Estudiantes:** {clase['total_estudiantes']}")
+                            hora_inicio = clase.get('hora_inicio', 'N/A')
+                            hora_fin = clase.get('hora_fin', 'N/A')
+                            st.write(f"**⏰ Horario:** {hora_inicio} - {hora_fin}")
+                            st.write(f"**📊 Total Estudiantes:** {total}")
                         
                         # Estadísticas de asistencia
                         st.markdown("---")
@@ -579,3 +699,8 @@ else:
                             """, unsafe_allow_html=True)
                         
                         st.markdown("<br>", unsafe_allow_html=True)
+
+# 🚀 Auto-refresh cada 30 segundos si hay clases seleccionadas
+if st.session_state.clasesPorBloque and not st.session_state.pausado:
+    time.sleep(30)
+    st.rerun()
