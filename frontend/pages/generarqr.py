@@ -6,8 +6,18 @@ import base64
 import requests
 
 # ---------- CONFIGURACIÓN DE LA PÁGINA ----------
-st.set_page_config(page_title="Generar QR", layout="wide")
-
+st.set_page_config(
+    page_title="Generar QR",
+    page_icon="🔑",
+    layout="wide",
+    initial_sidebar_state="expanded"   # ✅ habilita menú lateral
+)
+# ---------- OCULTAR MENÚ LATERAL POR DEFECTO ----------
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none;}
+    </style>
+""", unsafe_allow_html=True)
 # ---------- CSS PERSONALIZADO ----------
 st.markdown("""
 <style>
@@ -21,10 +31,7 @@ st.markdown("""
         width: 100%;
     }
 
-    .cabecera-panel {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+    .custom-header {
         background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
         color: white;
         padding: 1.5rem;
@@ -33,47 +40,12 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
-    .logo-nombre {
-        display: flex;
-        align-items: center;
-        gap: 15px;
-    }
-
-    .logo {
-        height: 60px;
-    }
-
-    .bienvenida {
-        text-align: right;
-    }
-
-    .fecha-hora {
-        font-size: 14px;
-    }
-
-    .generadorqr-main-content {
-        background: white;
-        padding: 2rem 3rem;
-        border-radius: 12px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-        border-left: 4px solid #2563eb;
-        margin-top: 20px;
-        width: 100%;
-    }
-
-    .generadorqr-input input {
-        border-radius: 8px;
-        border: 2px solid #dbeafe;
-        padding: 0.75rem;
-        font-family: 'Inter', sans-serif;
-        width: 100%;
-        transition: border-color 0.2s ease;
-    }
-
-    .generadorqr-input input:focus {
-        border-color: #2563eb;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
-        outline: none;
+    .header-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        text-align: center;
+        margin: 0;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     }
 
     .stButton > button {
@@ -93,67 +65,39 @@ st.markdown("""
         transform: translateY(-1px);
         box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
     }
-
-    .generadorqr-error-message {
-        color: #dc2626;
-        font-weight: bold;
-        margin-top: 10px;
-    }
-
-    .generadorqr-nombre-alumno {
-        font-weight: 600;
-        margin-top: 20px;
-        font-size: 18px;
-        color: #1e40af;
-    }
-
-    .generadorqr-download-link {
-        display: inline-block;
-        margin-top: 10px;
-        text-decoration: none;
-        color: #2563eb;
-        font-weight: 600;
-    }
-
-    .generadorqr-download-link:hover {
-        color: #1e40af;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- LIMPIEZA AUTOMÁTICA AL ENTRAR ----------
-if "qr_page_initialized" not in st.session_state:
-    for key in ["qr_image", "nombre_alumno", "error", "matricula", "loading"]:
-        st.session_state.pop(key, None)
-    st.session_state.qr_page_initialized = True
-    st.rerun()
-
-# ---------- ENCABEZADO ----------
-col1, col2 = st.columns([4, 1])
-with col1:
-    st.markdown("""
-    <div class="cabecera-panel">
-        <div class="logo-nombre">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Logo_UANL.svg/2048px-Logo_UANL.svg.png" class="logo" />
-            <h3>UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h3>
-        </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    now = datetime.now()
-    fecha = now.strftime("%d/%m/%Y")
-    hora = now.strftime("%H:%M:%S")
-    st.markdown(f"""
-    <div class="bienvenida">
-        <div class="fecha-hora">
-            <p>📅 {fecha}</p>
-            <p>🕐 {hora}</p>
-        </div>
-        <p>Bienvenido</p>
-        <a href="/" class="generadorqr-download-link">Cerrar sesión</a>
+# ---------- CABECERA ----------
+st.markdown("""
+<div class="custom-header">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 1rem;">
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo BUAP">
+        <h1 class="header-title" style="margin: 0; flex: 1; text-align: center;">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo Institución">
     </div>
-    </div>
-    """, unsafe_allow_html=True)
+</div>
+""".format(
+    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
+    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+), unsafe_allow_html=True)
+
+# ---------- BOTÓN DE VOLVER ----------
+col_back1, col_back2, col_back3 = st.columns([1, 2, 1])
+with col_back2:
+    if st.button("🏠 Volver al panel principal", key="main_back"):
+        st.switch_page("pages/panel.py")
+
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# ---------- MENÚ LATERAL ----------
+st.sidebar.title("Menú")
+st.sidebar.page_link("pages/panel.py", label="🏠 Panel Principal")
+st.sidebar.page_link("pages/generarqr.py", label="🔑 Generar QR")
+st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
+st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
+st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
+st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 # ---------- CONTENIDO PRINCIPAL ----------
 st.markdown("""

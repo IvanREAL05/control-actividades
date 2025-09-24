@@ -5,9 +5,10 @@ API_URL = "http://localhost:8000/api/login"
 
 st.set_page_config(page_title="Login", page_icon="🔐", initial_sidebar_state="collapsed")
 
-# --- Ocultar menú y footer ---
+# --- Ocultar menú, footer y sidebar ---
 hide_menu = """
 <style>
+    [data-testid="stSidebar"] {display: none;}   /* 🔒 oculta sidebar */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}

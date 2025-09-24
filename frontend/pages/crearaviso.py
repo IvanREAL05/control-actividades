@@ -2,6 +2,8 @@ import streamlit as st
 from datetime import datetime, date
 import time
 import requests
+import base64
+
 
 
 # ---------- CONFIGURACIÓN DE LA PÁGINA ----------
@@ -18,6 +20,24 @@ st.markdown("""
         background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
         max-width: 100%;
         width: 100%;
+    }
+
+    /* AÑADIR ESTA CLASE QUE FALTABA */
+    .custom-header {
+        background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    
+    .header-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        text-align: center;
+        margin: 0;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     }
 
     .cabecera-panel {
@@ -119,34 +139,43 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ---------- OCULTAR MENÚ LATERAL POR DEFECTO ----------
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none;}
+    </style>
+""", unsafe_allow_html=True)
+
+# ---------- MENÚ LATERAL ----------
+st.sidebar.title("Menú")
+st.sidebar.page_link("pages/panel.py", label="🏠 Panel Principal")
+st.sidebar.page_link("pages/generarqr.py", label="🔑 Generar QR")
+st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
+st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
+st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
+st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
+
 # ---------- CABECERA ----------
-col1, col2 = st.columns([4, 1])
-
-with col1:
-    st.markdown("""
-    <div class="cabecera-panel">
-        <div class="logo-nombre">
-            <img src="assets/logo1.jpeg" class="logo" />
-            <h3>UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h3>
-            <img src="assets/logo1.jpeg" class="logoU" />
-        </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    now = datetime.now()
-    fecha = now.strftime("%d/%m/%Y")
-    hora = now.strftime("%H:%M:%S")
-    st.markdown(f"""
-    <div class="bienvenida">
-        <div class="fecha-hora">
-            <p>📅 {fecha}</p>
-            <p>🕐 {hora}</p>
-        </div>
-        <p>Bienvenido</p>
-        <a href="/" class="btn-cancel">Cerrar sesión</a>
+st.markdown("""
+<div class="custom-header">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 1rem;">
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo BUAP">
+        <h1 class="header-title" style="margin: 0; flex: 1; text-align: center;">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo Institución">
     </div>
-    </div>
-    """, unsafe_allow_html=True)
+</div>
+""".format(
+    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
+    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+), unsafe_allow_html=True)
+
+# Botón de volver al panel
+col_back1, col_back2, col_back3 = st.columns([1, 2, 1])
+with col_back2:
+    if st.button("🏠 Volver al panel principal", key="main_back"):
+        st.switch_page("pages/panel.py")
+
+st.markdown("<hr>", unsafe_allow_html=True)
 
 # ---------- ESTADOS INICIALES ----------
 if 'aviso_success' not in st.session_state:

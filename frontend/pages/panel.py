@@ -7,6 +7,8 @@ import math
 import plotly.io as pio
 import uuid
 import streamlit.components.v1 as components
+import base64
+
 
 
 
@@ -248,7 +250,7 @@ st.set_page_config(
     page_title="Panel",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # --- Ocultar menú y footer ---
@@ -270,17 +272,23 @@ if "usuario" not in st.session_state:
 usuario = st.session_state["usuario"]
 
 # --- Encabezado superior ---
-st.markdown("""<div class="custom-header">
-    <div style="display: flex; align-items: center; justify-content: center;">
-        <h1 class="header-title">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+st.markdown("""
+<div class="custom-header">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 1rem;">
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo BUAP">
+        <h1 class="header-title" style="margin: 0; flex: 1; text-align: center;">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo Institución">
     </div>
-</div>""", unsafe_allow_html=True)
+</div>
+""".format(
+    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
+    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+), unsafe_allow_html=True)
 
-col_fecha, col_user, col_btn = st.columns([2, 2, 1])
 
+# Información del usuario y botón de cerrar sesión
+col_user, col_btn = st.columns([4, 1])
 # Fecha y hora (estática)
-with col_fecha:
-    st.markdown(f"📅 {datetime.now():%d/%m/%Y}<br>", unsafe_allow_html=True)
 
 # Usuario
 with col_user:
@@ -291,6 +299,22 @@ with col_btn:
     if st.button("🚪 Cerrar Sesión"):
         st.session_state.clear()
         st.switch_page("app.py")
+        
+# ---------- OCULTAR MENÚ LATERAL POR DEFECTO ----------
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none;}
+    </style>
+""", unsafe_allow_html=True)
+
+# ---------- MENÚ LATERAL ----------
+st.sidebar.title("Menú")
+st.sidebar.page_link("pages/panel.py", label="🏠 Panel Principal")
+st.sidebar.page_link("pages/generarqr.py", label="🔑 Generar QR")
+st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
+st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
+st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
+st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 

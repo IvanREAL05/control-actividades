@@ -2,6 +2,9 @@ import streamlit as st
 import datetime
 import time
 import requests
+import base64
+
+
 
 # CSS personalizado para el tema azul y blanco
 st.markdown("""
@@ -295,78 +298,36 @@ st.set_page_config(
     page_title="Ver todas las clases",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
+# ---------- OCULTAR MENÚ LATERAL POR DEFECTO ----------
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {display: none;}
+    </style>
+""", unsafe_allow_html=True)
+
+# ---------- MENÚ LATERAL ----------
+st.sidebar.title("Menú")
+st.sidebar.page_link("pages/panel.py", label="🏠 Panel Principal")
+st.sidebar.page_link("pages/generarqr.py", label="🔑 Generar QR")
+st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
+st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
+st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
+st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 # URL del backend actualizada
 API_URL = "http://localhost:8000/api/clases/por-bloque" 
 DEBUG_URL = "http://localhost:8000/api/clases/debug-dia"
 
-# 🔧 FUNCIÓN DE PRUEBA DIRECTA
-def test_backend_connection():
-    """Función para probar la conexión directamente"""
-    st.subheader("🔧 Test de Conexión al Backend")
-    
-    # Test 1: Conexión básica
-    try:
-        response = requests.get("http://localhost:8000/health", timeout=5)
-        if response.status_code == 200:
-            st.success("✅ Backend está corriendo")
-        else:
-            st.error(f"❌ Backend responde con error: {response.status_code}")
-    except Exception as e:
-        st.error(f"❌ No se puede conectar al backend: {e}")
-    
-    # Test 2: Debug de día específico
-    if st.button("🔍 Ver clases del Martes"):
-        try:
-            response = requests.get(f"{DEBUG_URL}/Martes", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                st.json(data)
-            else:
-                st.error(f"Error: {response.text}")
-        except Exception as e:
-            st.error(f"Error: {e}")
-    
-    # Test 3: Consulta manual
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        test_inicio = st.text_input("Hora inicio", "07:20:00")
-    with col2:
-        test_fin = st.text_input("Hora fin", "13:50:00")  # ⚠️ Cambié a 13:50 para capturar ambas clases
-    with col3:
-        test_dia = st.text_input("Día", "Martes")
-    
-    if st.button("🧪 Test Manual"):
-        params = {
-            "horaInicio": test_inicio,
-            "horaFin": test_fin,
-            "dia": test_dia
-        }
-        try:
-            response = requests.get(API_URL, params=params, timeout=10)
-            st.write(f"Status: {response.status_code}")
-            st.write(f"URL: {response.url}")
-            if response.status_code == 200:
-                st.json(response.json())
-            else:
-                st.error(response.text)
-        except Exception as e:
-            st.error(f"Error: {e}")
 
-# 🔧 AQUÍ VA EL CÓDIGO DE DEBUG - ANTES DEL RESTO
-st.sidebar.title("🔧 Debug Tools")
-if st.sidebar.checkbox("Mostrar herramientas de debug"):
-    test_backend_connection()
-    st.markdown("---")
 
 # Función mejorada para llamar al backend
 def obtener_clases_por_bloque(hora_inicio, hora_fin, dia):
     try:
         # Mapear días de inglés a español - CORREGIDO
         dias_mapping = {
-            'Monday': 'Martes',      # ⚠️ Esto está mal, debe ser Lunes
+            'Monday': 'Lunes',      # ⚠️ Esto está mal, debe ser Lunes
             'Tuesday': 'Martes', 
             'Wednesday': 'Miércoles',
             'Thursday': 'Jueves',
@@ -472,33 +433,21 @@ if 'horaSeleccionada' not in st.session_state:
     st.session_state.clasesPorBloque = []
 
 # Cabecera estilizada
+# --- Encabezado superior ---
 st.markdown("""
 <div class="custom-header">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div style="width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-            <span style="font-size: 2rem;">🏫</span>
-        </div>
-        <div style="flex: 1; text-align: center;">
-            <h1 class="header-title">UA PREP. 'GRAL. LÁZARO CÁRDENAS DEL RÍO'</h1>
-            <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Sistema de Gestión de Clases</p>
-        </div>
-        <div style="width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-            <span style="font-size: 2rem;">📚</span>
-        </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 1rem;">
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo BUAP">
+        <h1 class="header-title" style="margin: 0; flex: 1; text-align: center;">UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+        <img src="data:image/jpeg;base64,{}" style="height: 60px; width: auto; object-fit: contain;" alt="Logo Institución">
     </div>
 </div>
-""", unsafe_allow_html=True)
+""".format(
+    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
+    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+), unsafe_allow_html=True)
 
-# Información de fecha y hora
-fecha = datetime.datetime.now().strftime("%d/%m/%Y")
-hora = datetime.datetime.now().strftime("%H:%M:%S")
-st.markdown(f"""
-<div class="datetime-info">
-    <div><strong>📅 Fecha:</strong> {fecha}</div>
-    <div><strong>⏰ Hora:</strong> {hora}</div>
-    <div><strong>👋 Bienvenido al sistema de clases</strong></div>
-</div>
-""", unsafe_allow_html=True)
+
 
 # Botón de volver al panel
 col_back1, col_back2, col_back3 = st.columns([1, 2, 1])
@@ -510,7 +459,7 @@ with col_back2:
         st.session_state.pausado = False
         st.session_state.tiempoEnPausa = 0
         st.session_state.clasesPorBloque = []
-        st.rerun()
+        st.switch_page("pages/panel.py")
 
 st.markdown("---")
 
