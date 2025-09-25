@@ -408,6 +408,8 @@ gcol5.metric("📊 % Asistencia", f"{resumen_general.get('porcentaje', 0)}%")
 st.markdown("<hr>", unsafe_allow_html=True)
 
 
+# Reemplaza la sección "--- 3. Resumen por Clase ---" con este código:
+
 # --- 3. Resumen por Clase ---
 st.markdown('<h2 class="section-title">📘 Resumen por Clase</h2>', unsafe_allow_html=True)
 # pasar fecha opcional: usar hoy en formato YYYY-MM-DD
@@ -420,7 +422,6 @@ try:
 except Exception as e:
     st.error(f"❌ Error al obtener resumen por clase: {e}")
     clases_resumen = []
-
 
 if not clases_resumen:
     st.info("ℹ️ No hay clases registradas para la fecha.")
@@ -436,6 +437,7 @@ else:
         total_clase = presentes + justificantes + ausentes
         porcentaje = clase.get("porcentaje", 0)
 
+        # Gráfica de pastel
         df_clase = pd.DataFrame([
             {"Estado": "Presentes", "Cantidad": presentes},
             {"Estado": "Ausentes", "Cantidad": ausentes},
@@ -443,7 +445,7 @@ else:
         ])
         df_clase["Estado"] = pd.Categorical(df_clase["Estado"], categories=["Presentes", "Ausentes", "Justificantes"])
 
-        fig = px.pie(
+        fig_pie = px.pie(
             df_clase,
             names="Estado",
             values="Cantidad",
@@ -452,29 +454,75 @@ else:
                 "Presentes": "#0ae73a",
                 "Ausentes": "#e61010",
                 "Justificantes": "#f3f70c"
+            },
+            title="Distribución de Asistencia"
+        )
+        fig_pie.update_layout(
+            margin=dict(t=40, b=10, l=10, r=10),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+            height=300,
+            title_x=0.5,
+            font_size=12
+        )
+        chart_pie_html = pio.to_html(fig_pie, full_html=False, include_plotlyjs="cdn")
+
+        # Gráfica de tendencias (simulada con datos de ejemplo - puedes cambiar por datos reales)
+        # Datos de ejemplo de los últimos 7 días
+        fechas_ejemplo = pd.date_range(end=fecha_hoy, periods=7, freq='D')
+        tendencia_data = pd.DataFrame({
+            'Fecha': fechas_ejemplo,
+            'Presentes': [presentes + i*2 - 6 for i in range(7)],
+            'Ausentes': [ausentes + abs(i-3) for i in range(7)],
+            'Justificantes': [justificantes + (i%3) for i in range(7)]
+        })
+        
+        # Asegurar valores positivos
+        for col in ['Presentes', 'Ausentes', 'Justificantes']:
+            tendencia_data[col] = tendencia_data[col].clip(lower=0)
+
+        fig_trend = px.line(
+            tendencia_data, 
+            x='Fecha', 
+            y=['Presentes', 'Ausentes', 'Justificantes'],
+            title="Tendencia de Asistencia (7 días)",
+            color_discrete_map={
+                "Presentes": "#0ae73a",
+                "Ausentes": "#e61010",
+                "Justificantes": "#f3f70c"
             }
         )
-        fig.update_layout(
-            margin=dict(t=10, b=10, l=10, r=10),
+        fig_trend.update_layout(
+            margin=dict(t=40, b=10, l=10, r=10),
+            height=300,
+            title_x=0.5,
+            font_size=12,
             legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
         )
-        chart_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
+        chart_trend_html = pio.to_html(fig_trend, full_html=False, include_plotlyjs="cdn")
 
         slides_html += f"""
         <div class="swiper-slide">
             <div class="slide-card">
                 <h4>{nombre} — {grupo}</h4>
-                <p>👥 Total: {total_clase}</p>
-                <p>✅ Presentes: {presentes}</p>
-                <p>📄 Justificantes: {justificantes}</p>
-                <p>❌ Ausentes: {ausentes}</p>
-                <p>📊 % Asistencia: {porcentaje}%</p>
-                {chart_html}
+                <div class="metrics-info">
+                    <p>👥 Total: {total_clase}</p>
+                    <p>✅ Presentes: {presentes}</p>
+                    <p>📄 Justificantes: {justificantes}</p>
+                    <p>❌ Ausentes: {ausentes}</p>
+                    <p>📊 % Asistencia: {porcentaje}%</p>
+                </div>
+                <div class="charts-container">
+                    <div class="chart-item">
+                        {chart_pie_html}
+                    </div>
+                    <div class="chart-item">
+                        {chart_trend_html}
+                    </div>
+                </div>
             </div>
         </div>
         """
 
-    
     html = f"""
     <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
     <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro&display=swap" rel="stylesheet">
@@ -489,7 +537,7 @@ else:
         }}
         .swiper-slide {{
             flex-shrink: 0;
-            width: 440px;
+            width: 900px;
             box-sizing: border-box;
             display: flex;
             justify-content: center;
@@ -507,12 +555,45 @@ else:
         .slide-card h4 {{
             font-family: "Source Sans Pro", sans-serif;
             font-size: 20px;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #2563eb;
         }}
-        .slide-card p {{
+        .metrics-info {{
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }}
+        .metrics-info p {{
             font-family: "Source Sans Pro", sans-serif;
-            margin: 4px 0;
-            font-size: 15px;
+            margin: 4px 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }}
+        .charts-container {{
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: space-between;
+        }}
+        .chart-item {{
+            flex: 1;
+            min-width: 0;
+        }}
+        
+        /* Responsive para pantallas pequeñas */
+        @media (max-width: 768px) {{
+            .swiper-slide {{
+                width: 95vw;
+            }}
+            .charts-container {{
+                flex-direction: column;
+                gap: 15px;
+            }}
+            .metrics-info {{
+                justify-content: center;
+            }}
         }}
     </style>
 
@@ -541,15 +622,14 @@ else:
                 prevEl: '.swiper-button-prev',
             }},
             autoplay: {{
-                delay: 4000,
+                delay: 5000,
                 disableOnInteraction: false,
             }},
         }});
     </script>
     """
 
-    components.html(html, height=720)
-
+    components.html(html, height=800)
 
 #5 Lista de alumnos
 # --- Inicializar estado para ver todos los alumnos ---

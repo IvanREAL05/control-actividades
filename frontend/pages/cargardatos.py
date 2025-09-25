@@ -127,18 +127,18 @@ if 'nuevo_estudiante' not in st.session_state:
 # Simulaciones de datos
 columnas_esperadas = {
     "estudiantes": ["matricula", "nombre", "apellido", "email", "grupo"],
-    "profesores": ["nombre", "apellido", "email"],
+    "profesores": ["nombre", "apellido"],
     "grupos": ["nombre", "grado", "turno"],
     "clases": ["materia", "grupo", "profesor"],
     "materias": ["nombre", "codigo"]
 }
 
 imagenes_referencia = {
-    "estudiantes": "https://via.placeholder.com/400x150?text=Excel+Estudiantes",
-    "profesores": "https://via.placeholder.com/400x150?text=Excel+Profesores",
-    "grupos": "https://via.placeholder.com/400x150?text=Excel+Grupos",
-    "clases": "https://via.placeholder.com/400x150?text=Excel+Clases",
-    "materias": "https://via.placeholder.com/400x150?text=Excel+Materias",
+    "estudiantes": "assets/tabla-estudiante.png",
+    "profesores": "assets/tabla-profesor.png",
+    "grupos": "assets/tabla-grupo.png",
+    "clases": "assets/tabla-clase.png",
+    "materias": "assets/tabla-materia.png",
 }
 
 lista_grupos = [{"id_grupo": 1, "nombre": "Grupo A"}, {"id_grupo": 2, "nombre": "Grupo B"}]
