@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Optional
 from utils.fecha import obtener_fecha_hora_cdmx
 from config.db import fetch_all, fetch_one
 from datetime import datetime, timedelta
+from routes.ws_manager import manager
 
 router = APIRouter()
 
@@ -391,3 +392,20 @@ async def clases_por_grupo(grupo: str = Query(...)):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener clases: {str(e)}")
+
+@router.websocket("/ws/attendances")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket que envía actualizaciones de asistencia en tiempo real.
+    """
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Simplemente mantén la conexión viva.
+            # Si quieres recibir mensajes del cliente, puedes usar:
+            msg = await websocket.receive_text()
+            await websocket.send_text(f"Recibido: {msg}")  # envia confirmación al cliente
+
+            # por ahora, si cliente envía ping/pong, lo ignoramos
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)

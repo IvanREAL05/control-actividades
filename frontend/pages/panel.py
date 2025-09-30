@@ -346,7 +346,7 @@ else:
     st.warning("⚠️ No hay clases disponibles para hoy.")
 
 # Botones de acción
-col_acc1, col_acc2, col_acc3, col_acc4 = st.columns(4)
+col_acc1, col_acc2, col_acc3, col_acc4, col_acc5= st.columns(5)
 with col_acc1:
     if st.button("📊 Ver Todas las Clases"):
         st.switch_page("pages/vertodasclases.py")
@@ -360,6 +360,10 @@ with col_acc3:
 with col_acc4:
     if st.button("📝 Justificantes"):
         st.switch_page("pages/justificantes.py")
+
+with col_acc5:
+    if st.button("✅Ver clases del momento "):
+        st.switch_page("pages/resultados.py")
 st.markdown("<hr>", unsafe_allow_html=True)
 
 #Endpoint resumen del turno actual 
