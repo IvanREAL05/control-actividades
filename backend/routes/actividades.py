@@ -25,7 +25,6 @@ class ActividadCreate(BaseModel):
     id_clase: int
     valor_maximo: float = Field(..., ge=0, le=10)
 
-
 # --- Listar todas las actividades ---
 @router.get("/")
 async def listar_actividades():

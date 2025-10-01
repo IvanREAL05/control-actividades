@@ -12,7 +12,7 @@ load_dotenv()  # Esto carga todas las variables del .env
 from routes import (
     actividades, avisos,login, clases, estadisticas,
     estudiantes, grupos, profesor, qr, asistencias, 
-    importar, reportes, justificantes
+    importar, reportes, justificantes, observaciones
 )
 
 # Manejo del ciclo de vida de la aplicación
@@ -100,7 +100,8 @@ app.include_router(qr.router, prefix='/api/qr', tags=["QR"])
 app.include_router(asistencias.router, prefix='/api/asistencias', tags=["Asistencias"])
 app.include_router(importar.router, prefix='/api/importar', tags=["Importar"])
 app.include_router(reportes.router, prefix='/api/reportes', tags=["Reportes"])
-app.include_router(justificantes.router, prefix="/api/uustificantes", tags=["Justificantes"])
+app.include_router(justificantes.router, prefix="/api/justificantes", tags=["Justificantes"])
+app.include_router(observaciones.router, prefix='/api/observaciones', tags=["Observaciones"])
 
 # ✅ Ruta health check mejorada
 @app.get("/")
