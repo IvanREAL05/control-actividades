@@ -702,40 +702,56 @@ else:
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
-
+def obtener_asistencia_clase(id_clase: int):
+    try:
+        response = requests.get(f"{API_BASE_URL}asistencias/clase/{id_clase}")
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Error al obtener asistencia: {e}")
+        return []
+    
 # 6 Mapa de asientos dinámico
 st.markdown('<h2 class="section-title">🪑 Mapa de Asientos</h2>', unsafe_allow_html=True)
 
-cols = 6  # puedes cambiarlo a 5 u 8 según el ancho que prefieras
-total_alumnos = len(alumnos)
-rows = math.ceil(total_alumnos / cols)
+# ✅ Usar id_clase que ya está definida arriba
+if id_clase:  # ✅ Esta variable ya existe de tu selector
+    alumnos_con_asistencia = obtener_asistencia_clase(id_clase)
 
-for i in range(rows):
-    cols_seat = st.columns(cols)
-    for j in range(cols):
-        seat_num = i * cols + j + 1
-        a = next((x for x in alumnos if x.get("no_lista") == seat_num), None)
-        
-        with cols_seat[j]:
-            if a:
-                estado = a.get("estado_actual", "").lower()
-                color = {
-                    "presente": "🟢",
-                    "ausente": "🔴",
-                    "justificante": "🟡"
-                }.get(estado, "⚪")
+else:
+    st.warning("⚠️ Selecciona una clase primero")
+    alumnos_con_asistencia = []
 
-                nombre = a.get("nombre", "")
-                apellido = a.get("apellido", "")
-                iniciales = (nombre[:1] + apellido[:1]).upper() if nombre and apellido else "--"
+if alumnos_con_asistencia:
+    cols = 6
+    total_alumnos = len(alumnos_con_asistencia)
+    rows = math.ceil(total_alumnos / cols)
 
-                if st.button(f"{color} {iniciales}", key=f"seat_{seat_num}"):
-                    st.info(f"Asiento {seat_num}: {nombre} {apellido} - {estado.title()}")
-            else:
-                st.button("⚪ ---", key=f"empty_{seat_num}", disabled=True)
+    for i in range(rows):
+        cols_seat = st.columns(cols)
+        for j in range(cols):
+            seat_num = i * cols + j + 1
+            a = next((x for x in alumnos_con_asistencia if x.get("no_lista") == seat_num), None)
+            
+            with cols_seat[j]:
+                if a:
+                    estado = a.get("estado", "ausente").lower()
+                    color = {
+                        "presente": "🟢",
+                        "ausente": "🔴",
+                        "justificante": "🟡"
+                    }.get(estado, "⚪")
+
+                    nombre = a.get("nombre", "")
+                    apellido = a.get("apellido", "")
+                    iniciales = (nombre[:1] + apellido[:1]).upper() if nombre and apellido else "--"
+
+                    if st.button(f"{color} {iniciales}", key=f"seat_{seat_num}"):
+                        st.info(f"Asiento {seat_num}: {nombre} {apellido} - {estado.title()}")
+                else:
+                    st.button("⚪ ---", key=f"empty_{seat_num}", disabled=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
-
 
 
 # QR y footer
@@ -753,6 +769,20 @@ with col_qr2:
         st.switch_page("pages/generarqr.py")
         st.success("¡Código QR generado exitosamente!")
         st.info("Código válido por 30 minutos")
+
+# Reportes de excel
+st.markdown("<hr>", unsafe_allow_html=True)
+col_qr1, col_qr2 = st.columns([3, 1])
+with col_qr1:
+    st.markdown("""
+    <div class="info-card">
+        <h4 style="color: #2563eb;">📱 Reportes</h4>
+        <p>Descarga reportes de asistencias en excel</p>
+    </div>
+    """, unsafe_allow_html=True)
+with col_qr2:
+    if st.button("📲 Ver todos los reportes"):
+        st.switch_page("pages/reportes.py")
 st.markdown("""
 <div style="text-align: center; padding: 2rem 0; color: #6b7280; border-top: 1px solid #e5e7eb;">
     <p>© 2025 UA PREP. LÁZARO CARDENAS DEL RÍO - Sistema de Control</p>

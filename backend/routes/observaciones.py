@@ -31,8 +31,9 @@ class ObservacionResponse(BaseModel):
     nombre_profesor: Optional[str] = None
     apellido_profesor: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True  
+    }
 
 class ObservacionResponseList(BaseModel):
     success: bool = True
