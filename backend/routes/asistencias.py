@@ -3,6 +3,7 @@ from datetime import datetime, date
 from typing import Optional, Dict, Any
 import asyncio
 import logging
+import json
 
 from fastapi import APIRouter, HTTPException, Response, Query, Depends
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 import pytz
 from io import BytesIO
+from routes.ws_manager import manager
 
 # Importar la configuración de base de datos
 from config.db import get_pool, fetch_one, fetch_all, execute_query, get_db_connection, get_pool
@@ -125,30 +127,30 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
     """Escanear código QR para registrar asistencia"""
     start_time = datetime.now()
     logger.info(f"📥 Petición recibida: {request.estado}, {request.id_clase}, QR recibido")
-    
+
     try:
         # Desencriptar QR
         try:
             decrypted = fernet_cipher.decrypt(request.qr.encode()).decode()
-        except Exception as e:
+        except Exception:
             raise HTTPException(status_code=400, detail="QR inválido o expirado")
-        
+
         partes = [p.strip() for p in decrypted.split('|')]
-        
+
         if len(partes) < 4:
             raise HTTPException(status_code=400, detail="Formato QR inválido")
-        
+
         nombre_completo = partes[0]
         matricula = partes[1]
         grupo_texto = partes[2]
-        
+
         # Obtener fecha y hora actual
         datos = obtener_fecha_hora_cdmx()
         fecha = datos["fecha"]
         hora = datos["hora"]
         hoy = fecha.strftime('%Y-%m-%d')
         hora_actual = hora.strftime('%H:%M:%S')
-        
+
         async with connection.cursor() as cursor:
             # Consulta optimizada con JOINs
             consulta_completa = """
@@ -170,21 +172,23 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                     AND c.id_clase = %s 
                 LIMIT 1
             """
-            
+
             await cursor.execute(consulta_completa, (grupo_texto, hoy, matricula, request.id_clase))
             resultado = await cursor.fetchone()
-            
+
             if not resultado:
                 raise HTTPException(
-                    status_code=404, 
+                    status_code=404,
                     detail="Estudiante no encontrado o no hay clase activa para este grupo"
                 )
-            
-            (id_estudiante, id_grupo, id_clase_datos, nombre, apellido, 
+
+            (id_estudiante, id_grupo, id_clase_datos, nombre, apellido,
              id_asistencia, estado_actual) = resultado
-            
+
+            # ============================
+            # Caso: ya existe asistencia
+            # ============================
             if id_asistencia:
-                # Ya existe asistencia
                 if estado_actual == request.estado:
                     response_time = (datetime.now() - start_time).total_seconds() * 1000
                     logger.warning(f"⚠️ Escaneo repetido ({response_time:.0f}ms). Estado: {estado_actual}")
@@ -193,14 +197,26 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                         "mensaje": f"{nombre} {apellido} ya estaba registrado como '{estado_actual}'",
                         "duplicado": True
                     }
-                
+
                 # Actualizar estado existente
                 await cursor.execute(
                     "UPDATE asistencia SET estado = %s, hora_entrada = %s WHERE id_asistencia = %s",
                     (request.estado, hora_actual, id_asistencia)
                 )
                 await connection.commit()
-                
+
+                # 🔔 Difusión WebSocket
+                await manager.broadcast(json.dumps({
+                    "evento": "asistencia_actualizada",
+                    "id_estudiante": id_estudiante,
+                    "nombre": nombre,
+                    "apellido": apellido,
+                    "id_clase": id_clase_datos,
+                    "estado": request.estado,
+                    "hora": hora_actual,
+                    "fecha": hoy
+                }))
+
                 response_time = (datetime.now() - start_time).total_seconds() * 1000
                 logger.info(f"🔄 Asistencia actualizada ({response_time:.0f}ms): {nombre} {apellido} -> '{request.estado}'")
                 return {
@@ -208,23 +224,37 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                     "mensaje": f"{nombre} {apellido} actualizado a '{request.estado}'",
                     "actualizado": True
                 }
-            
-            # Insertar nueva asistencia
+
+            # ============================
+            # Caso: nueva asistencia
+            # ============================
             await cursor.execute(
                 "INSERT INTO asistencia (id_estudiante, id_clase, hora_entrada, estado, fecha) VALUES (%s, %s, %s, %s, %s)",
                 (id_estudiante, request.id_clase, hora_actual, request.estado, hoy)
             )
             await connection.commit()
-            
+
+            # 🔔 Difusión WebSocket
+            await manager.broadcast(json.dumps({
+                "evento": "nueva_asistencia",
+                "id_estudiante": id_estudiante,
+                "nombre": nombre,
+                "apellido": apellido,
+                "id_clase": request.id_clase,
+                "estado": request.estado,
+                "hora": hora_actual,
+                "fecha": hoy
+            }))
+
             response_time = (datetime.now() - start_time).total_seconds() * 1000
             logger.info(f"✅ Asistencia registrada ({response_time:.0f}ms): {nombre} {apellido} como '{request.estado}'")
-            
+
             return {
                 "success": True,
                 "mensaje": f"{nombre} {apellido} registrado como '{request.estado}'",
                 "nuevo": True
             }
-            
+
     except HTTPException:
         raise
     except Exception as error:
