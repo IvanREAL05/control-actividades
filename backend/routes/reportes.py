@@ -37,6 +37,14 @@ def limpiar_nombre_hoja(nombre: str, max_length: int = 31) -> str:
         nombre = nombre.replace(char, '_')
     return nombre[:max_length]
 
+def formato_fecha(fecha):
+    """Convierte fecha a string YYYY-MM-DD"""
+    if isinstance(fecha, datetime):
+        return fecha.strftime("%Y-%m-%d")
+    elif isinstance(fecha, str):
+        return fecha
+    return str(fecha)
+
 # ==================== REPORTE DE ASISTENCIAS POR GRUPO ====================
 @router.get("/excel")
 async def generar_reporte_grupo(
@@ -49,7 +57,7 @@ async def generar_reporte_grupo(
         # Si no hay fechas, usar valores por defecto
         if not fechaInicio:
             min_fecha = await fetch_one("SELECT MIN(fecha) as min_fecha FROM asistencia")
-            fechaInicio = min_fecha["min_fecha"] if min_fecha["min_fecha"] else "2025-08-04"
+            fechaInicio = formato_fecha(min_fecha["min_fecha"]) if min_fecha and min_fecha["min_fecha"] else "2025-08-04"
         
         if not fechaFin:
             fechaFin = obtener_fecha_hora_cdmx()["fecha"]
@@ -59,7 +67,7 @@ async def generar_reporte_grupo(
         # Generar lista de fechas
         fechas = generar_rango_fechas(fechaInicio, fechaFin)
         
-        # Consultar asistencias
+        # ✅ CONSULTA CORREGIDA: Obtener todas las clases del grupo con sus estudiantes
         query = """
             SELECT
                 m.nombre AS materia,
@@ -68,23 +76,28 @@ async def generar_reporte_grupo(
                 e.matricula,
                 e.no_lista,
                 a.fecha,
-                a.estado
-            FROM clase c
-            JOIN materia m ON c.id_materia = m.id_materia
-            JOIN estudiante e ON e.id_grupo = c.id_grupo
+                a.estado,
+                c.id_clase
+            FROM estudiante e
+            CROSS JOIN clase c
+            LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN asistencia a 
                 ON a.id_estudiante = e.id_estudiante
                 AND a.id_clase = c.id_clase
                 AND a.fecha BETWEEN %s AND %s
-            WHERE c.id_grupo = %s
-            ORDER BY materia, apellido, nombre, fecha
+            WHERE e.id_grupo = %s
+                AND c.id_grupo = %s
+            ORDER BY m.nombre, e.no_lista, a.fecha
         """
         
-        datos = await fetch_all(query, (fechaInicio, fechaFin, id_grupo))
+        datos = await fetch_all(query, (fechaInicio, fechaFin, id_grupo, id_grupo))
+        
+        if not datos:
+            raise HTTPException(status_code=404, detail="No se encontraron datos para este grupo")
         
         # Crear workbook
         wb = Workbook()
-        wb.remove(wb.active)  # Remover hoja por defecto
+        wb.remove(wb.active)
         
         # Agrupar por materia
         materias = {}
@@ -99,7 +112,7 @@ async def generar_reporte_grupo(
             ws = wb.create_sheet(limpiar_nombre_hoja(materia))
             
             # Encabezados
-            headers = ["Nombre", "Apellido", "Matrícula", "No. Lista", *fechas]
+            headers = ["No. Lista", "Nombre", "Apellido", "Matrícula", *fechas]
             ws.append(headers)
             
             # Aplicar estilo al encabezado
@@ -120,22 +133,25 @@ async def generar_reporte_grupo(
                         "asistencias": {}
                     }
                 if row["fecha"]:
-                    fecha_str = row["fecha"].strftime("%Y-%m-%d") if isinstance(row["fecha"], datetime) else row["fecha"]
+                    fecha_str = formato_fecha(row["fecha"])
                     alumnos[key]["asistencias"][fecha_str] = row["estado"]
             
+            # Ordenar alumnos por no_lista
+            alumnos_ordenados = sorted(alumnos.values(), key=lambda x: x["no_lista"])
+            
             # Agregar filas
-            for alumno in alumnos.values():
+            for alumno in alumnos_ordenados:
                 row_data = [
+                    alumno["no_lista"],
                     alumno["nombre"],
                     alumno["apellido"],
-                    alumno["matricula"],
-                    alumno["no_lista"]
+                    alumno["matricula"]
                 ]
                 
                 # Agregar estados por fecha
                 for fecha in fechas:
                     estado = alumno["asistencias"].get(fecha, "")
-                    row_data.append(estado)
+                    row_data.append(estado.capitalize() if estado else "")
                 
                 ws.append(row_data)
                 
@@ -147,14 +163,21 @@ async def generar_reporte_grupo(
                     
                     if estado == "presente":
                         cell.fill = COLOR_PRESENTE
+                        cell.alignment = Alignment(horizontal="center")
                     elif estado == "ausente":
                         cell.fill = COLOR_AUSENTE
+                        cell.alignment = Alignment(horizontal="center")
                     elif estado == "justificante":
                         cell.fill = COLOR_JUSTIFICANTE
+                        cell.alignment = Alignment(horizontal="center")
             
             # Ajustar ancho de columnas
-            for col in ws.columns:
-                ws.column_dimensions[col[0].column_letter].width = 15
+            ws.column_dimensions['A'].width = 10
+            ws.column_dimensions['B'].width = 20
+            ws.column_dimensions['C'].width = 20
+            ws.column_dimensions['D'].width = 15
+            for i in range(5, 5 + len(fechas)):
+                ws.column_dimensions[chr(64 + i)].width = 12
         
         # Guardar en buffer
         output = io.BytesIO()
@@ -164,11 +187,15 @@ async def generar_reporte_grupo(
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=asistencias.xlsx"}
+            headers={"Content-Disposition": f"attachment; filename=asistencias_grupo_{id_grupo}.xlsx"}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
 
 # ==================== REPORTE INDIVIDUAL DE ESTUDIANTE ====================
@@ -194,7 +221,7 @@ async def generar_reporte_individual(
         # Generar fechas
         fechas = generar_rango_fechas(fechaInicio, fechaFin)
         
-        # Obtener asistencias agrupadas por materia
+        # ✅ CONSULTA CORREGIDA: Obtener asistencias agrupadas por materia
         query = """
             SELECT
                 m.nombre AS materia,
@@ -216,8 +243,11 @@ async def generar_reporte_individual(
             mat = row["materia"]
             if mat not in materias:
                 materias[mat] = {}
-            fecha_str = row["fecha"].strftime("%Y-%m-%d") if isinstance(row["fecha"], datetime) else row["fecha"]
+            fecha_str = formato_fecha(row["fecha"])
             materias[mat][fecha_str] = row["estado"]
+        
+        if not materias:
+            raise HTTPException(status_code=404, detail="No se encontraron asistencias para este estudiante en el rango de fechas")
         
         # Crear workbook
         wb = Workbook()
@@ -233,7 +263,7 @@ async def generar_reporte_individual(
             cell.alignment = Alignment(horizontal="center")
         
         # Agregar filas por materia
-        for materia, asist_fechas in materias.items():
+        for materia, asist_fechas in sorted(materias.items()):
             row_data = [materia]
             
             for fecha in fechas:
@@ -250,14 +280,18 @@ async def generar_reporte_individual(
                 
                 if estado == "presente":
                     cell.fill = COLOR_PRESENTE
+                    cell.alignment = Alignment(horizontal="center")
                 elif estado == "ausente":
                     cell.fill = COLOR_AUSENTE
+                    cell.alignment = Alignment(horizontal="center")
                 elif estado == "justificante":
                     cell.fill = COLOR_JUSTIFICANTE
+                    cell.alignment = Alignment(horizontal="center")
         
         # Ajustar columnas
-        for col in ws.columns:
-            ws.column_dimensions[col[0].column_letter].width = 12
+        ws.column_dimensions['A'].width = 25
+        for i in range(2, 2 + len(fechas)):
+            ws.column_dimensions[chr(64 + i)].width = 12
         
         # Guardar
         output = io.BytesIO()
@@ -276,12 +310,14 @@ async def generar_reporte_individual(
         raise
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
 
 # ==================== REPORTE DE ACTIVIDADES POR CLASE ====================
 @router.get("/excel/clase/{id_clase}")
 async def generar_reporte_actividades_clase(id_clase: int):
-    """Genera reporte de actividades de una clase"""
+    """Genera reporte de actividades de una clase (una hoja por actividad)"""
     try:
         # Obtener datos de la clase
         clase = await fetch_one("""
@@ -309,12 +345,12 @@ async def generar_reporte_actividades_clase(id_clase: int):
         if not actividades:
             raise HTTPException(status_code=404, detail="No hay actividades para esta clase")
         
-        # Obtener alumnos
+        # Obtener alumnos del grupo de la clase
         alumnos = await fetch_all("""
-            SELECT id_estudiante, nombre, apellido, matricula, no_lista
-            FROM estudiante
-            WHERE id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
-            ORDER BY apellido, nombre
+            SELECT e.id_estudiante, e.nombre, e.apellido, e.matricula, e.no_lista
+            FROM estudiante e
+            WHERE e.id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
+            ORDER BY e.no_lista
         """, (id_clase,))
         
         # Crear workbook
@@ -327,15 +363,17 @@ async def generar_reporte_actividades_clase(id_clase: int):
             
             # Info de la actividad
             ws.append([f"Actividad: {act['titulo']}"])
-            ws.append([f"Fecha entrega: {act['fecha_entrega']}"])
+            ws.append([f"Fecha entrega: {formato_fecha(act['fecha_entrega'])}"])
             ws.append([f"Valor máximo: {act['valor_maximo']}"])
             ws.append([])
             
             # Encabezados
-            ws.append(["Alumno", "Matrícula", "Estado", "Fecha entrega real", "Calificación"])
-            ws[5].font = Font(bold=True)
+            ws.append(["No. Lista", "Alumno", "Matrícula", "Estado", "Fecha entrega real", "Calificación"])
+            for cell in ws[5]:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal="center")
             
-            # Obtener entregas
+            # Obtener entregas de esta actividad
             entregas = await fetch_all("""
                 SELECT id_estudiante, estado, fecha_entrega_real, calificacion
                 FROM actividad_estudiante
@@ -350,10 +388,11 @@ async def generar_reporte_actividades_clase(id_clase: int):
                 estado = entrega["estado"] if entrega else "pendiente"
                 
                 row_data = [
+                    alumno["no_lista"],
                     f"{alumno['apellido']} {alumno['nombre']}",
                     alumno["matricula"],
-                    estado,
-                    entrega["fecha_entrega_real"] if entrega else "",
+                    estado.capitalize(),
+                    formato_fecha(entrega["fecha_entrega_real"]) if entrega and entrega["fecha_entrega_real"] else "",
                     entrega["calificacion"] if entrega and entrega["calificacion"] is not None else ""
                 ]
                 
@@ -361,7 +400,8 @@ async def generar_reporte_actividades_clase(id_clase: int):
                 
                 # Colorear estado
                 current_row = ws.max_row
-                estado_cell = ws.cell(row=current_row, column=3)
+                estado_cell = ws.cell(row=current_row, column=4)
+                estado_cell.alignment = Alignment(horizontal="center")
                 
                 estado_lower = estado.lower()
                 if estado_lower == "entregado":
@@ -372,8 +412,12 @@ async def generar_reporte_actividades_clase(id_clase: int):
                     estado_cell.fill = COLOR_NO_ENTREGADO
             
             # Ajustar columnas
-            for col in ws.columns:
-                ws.column_dimensions[col[0].column_letter].width = 20
+            ws.column_dimensions['A'].width = 10
+            ws.column_dimensions['B'].width = 30
+            ws.column_dimensions['C'].width = 15
+            ws.column_dimensions['D'].width = 15
+            ws.column_dimensions['E'].width = 20
+            ws.column_dimensions['F'].width = 12
         
         # Guardar
         output = io.BytesIO()
@@ -392,6 +436,8 @@ async def generar_reporte_actividades_clase(id_clase: int):
         raise
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
 
 # ==================== REPORTE GENERAL DE ACTIVIDADES ====================
@@ -411,7 +457,7 @@ async def generar_reporte_general_actividades(id_clase: int):
         if not clase:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
         
-        # Obtener actividades
+        # Obtener actividades ordenadas
         actividades = await fetch_all("""
             SELECT id_actividad, titulo
             FROM actividad
@@ -430,7 +476,7 @@ async def generar_reporte_general_actividades(id_clase: int):
             ORDER BY no_lista
         """, (id_clase,))
         
-        # Obtener entregas
+        # Obtener todas las entregas de las actividades
         ids_actividades = [a["id_actividad"] for a in actividades]
         placeholders = ','.join(['%s'] * len(ids_actividades))
         entregas = await fetch_all(f"""
@@ -447,20 +493,20 @@ async def generar_reporte_general_actividades(id_clase: int):
         # Crear workbook
         wb = Workbook()
         ws = wb.active
-        ws.title = f"{clase['materia']}-{clase['grupo']}"
+        ws.title = limpiar_nombre_hoja(f"{clase['materia']}-{clase['grupo']}")
         
         # Encabezados
         headers = ["No Lista", "Matrícula", "Nombre", "Grupo"]
         for act in actividades:
-            headers.append(act["titulo"])
-            headers.append(f"Cal - {act['titulo']}")
+            headers.append(f"{act['titulo']}")
+            headers.append(f"Cal")
         
         ws.append(headers)
-        ws[1].font = Font(bold=True)
         for cell in ws[1]:
+            cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
         
-        # Agregar filas
+        # Agregar filas de alumnos
         for alumno in alumnos:
             row_data = [
                 alumno["no_lista"],
@@ -473,7 +519,7 @@ async def generar_reporte_general_actividades(id_clase: int):
                 key = f"{alumno['id_estudiante']}_{act['id_actividad']}"
                 entrega = entregas_map.get(key)
                 
-                estado = entrega["estado"] if entrega else "pendiente"
+                estado = entrega["estado"].capitalize() if entrega else "Pendiente"
                 calificacion = entrega["calificacion"] if entrega and entrega["calificacion"] is not None else 0
                 
                 row_data.append(estado)
@@ -483,9 +529,10 @@ async def generar_reporte_general_actividades(id_clase: int):
             
             # Colorear estados
             current_row = ws.max_row
-            col_idx = 5
+            col_idx = 5  # Empieza después de No Lista, Matrícula, Nombre, Grupo
             for _ in actividades:
                 estado_cell = ws.cell(row=current_row, column=col_idx)
+                estado_cell.alignment = Alignment(horizontal="center")
                 estado = estado_cell.value.lower() if estado_cell.value else ""
                 
                 if estado == "entregado":
@@ -495,11 +542,24 @@ async def generar_reporte_general_actividades(id_clase: int):
                 elif estado == "no entregado":
                     estado_cell.fill = COLOR_NO_ENTREGADO
                 
-                col_idx += 2
+                # Centrar también la calificación
+                cal_cell = ws.cell(row=current_row, column=col_idx + 1)
+                cal_cell.alignment = Alignment(horizontal="center")
+                
+                col_idx += 2  # Siguiente par Estado/Calificación
         
         # Ajustar columnas
-        for col in ws.columns:
-            ws.column_dimensions[col[0].column_letter].width = 20
+        ws.column_dimensions['A'].width = 10
+        ws.column_dimensions['B'].width = 15
+        ws.column_dimensions['C'].width = 30
+        ws.column_dimensions['D'].width = 10
+        
+        col_letra = 'E'
+        for _ in actividades:
+            ws.column_dimensions[col_letra].width = 15
+            col_letra = chr(ord(col_letra) + 1)
+            ws.column_dimensions[col_letra].width = 8
+            col_letra = chr(ord(col_letra) + 1)
         
         # Guardar
         output = io.BytesIO()
@@ -518,6 +578,8 @@ async def generar_reporte_general_actividades(id_clase: int):
         raise
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
 
 # ==================== REPORTE DE PROFESOR ====================
@@ -532,14 +594,17 @@ async def generar_reporte_profesor(
         if not fechaFin:
             fechaFin = obtener_fecha_hora_cdmx()["fecha"]
         
+        print(f"📅 Generando reporte para profesor {id_profesor}: {fechaInicio} a {fechaFin}")
+        
         # Obtener clases del profesor
         clases = await fetch_all("""
             SELECT c.id_clase, c.nombre_clase,
-                   m.nombre AS materia, g.nombre AS grupo
+                   m.nombre AS materia, g.nombre AS grupo, c.id_grupo
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
             WHERE c.id_profesor = %s
+            ORDER BY m.nombre, g.nombre
         """, (id_profesor,))
         
         if not clases:
@@ -553,17 +618,21 @@ async def generar_reporte_profesor(
             nombre_hoja = f"{clase['materia']} - {clase['grupo']}"
             ws = wb.create_sheet(limpiar_nombre_hoja(nombre_hoja))
             
-            # Obtener estudiantes
+            # Obtener estudiantes del grupo
             estudiantes = await fetch_all("""
                 SELECT e.id_estudiante, e.nombre, e.apellido, e.matricula, 
                        e.no_lista, g.nombre AS grupo
                 FROM estudiante e
                 JOIN grupo g ON e.id_grupo = g.id_grupo
-                WHERE e.id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
+                WHERE e.id_grupo = %s
                 ORDER BY e.no_lista
-            """, (clase["id_clase"],))
+            """, (clase["id_grupo"],))
             
-            # Obtener solo fechas donde hubo clase
+            if not estudiantes:
+                ws.append(["No hay estudiantes en este grupo"])
+                continue
+            
+            # Obtener solo fechas donde hubo clase (registros de asistencia)
             fechas_clase = await fetch_all("""
                 SELECT DISTINCT fecha
                 FROM asistencia
@@ -572,8 +641,11 @@ async def generar_reporte_profesor(
                 ORDER BY fecha
             """, (clase["id_clase"], fechaInicio, fechaFin))
             
-            fechas = [f["fecha"].strftime("%Y-%m-%d") if isinstance(f["fecha"], datetime) else f["fecha"] 
-                     for f in fechas_clase]
+            fechas = [formato_fecha(f["fecha"]) for f in fechas_clase]
+            
+            if not fechas:
+                ws.append(["No hay registros de asistencia en este rango de fechas"])
+                continue
             
             # Obtener asistencias
             asistencias = await fetch_all("""
@@ -585,28 +657,30 @@ async def generar_reporte_profesor(
             
             asist_map = {}
             for a in asistencias:
-                fecha_str = a["fecha"].strftime("%Y-%m-%d") if isinstance(a["fecha"], datetime) else a["fecha"]
+                fecha_str = formato_fecha(a["fecha"])
                 key = f"{a['id_estudiante']}_{fecha_str}"
                 asist_map[key] = a["estado"]
             
             # Encabezados
             headers = ["No Lista", "Matrícula", "Nombre", "Grupo", *fechas]
             ws.append(headers)
-            ws[1].font = Font(bold=True)
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal="center")
             
-            # Agregar filas
+            # Agregar filas de estudiantes
             for est in estudiantes:
                 row_data = [
                     est["no_lista"],
                     est["matricula"],
-                    f"{est['nombre']} {est['apellido']}",
+                    f"{est['apellido']} {est['nombre']}",
                     est["grupo"]
                 ]
                 
                 for fecha in fechas:
                     key = f"{est['id_estudiante']}_{fecha}"
-                    estado = asist_map.get(key, "—")
-                    row_data.append(estado)
+                    estado = asist_map.get(key, "")
+                    row_data.append(estado.capitalize() if estado else "")
                 
                 ws.append(row_data)
                 
@@ -614,6 +688,7 @@ async def generar_reporte_profesor(
                 current_row = ws.max_row
                 for col_idx in range(5, 5 + len(fechas)):
                     cell = ws.cell(row=current_row, column=col_idx)
+                    cell.alignment = Alignment(horizontal="center")
                     estado = cell.value.lower() if cell.value else ""
                     
                     if estado == "presente":
@@ -624,8 +699,16 @@ async def generar_reporte_profesor(
                         cell.fill = COLOR_JUSTIFICANTE
             
             # Ajustar columnas
-            for col in ws.columns:
-                ws.column_dimensions[col[0].column_letter].width = 15
+            ws.column_dimensions['A'].width = 10
+            ws.column_dimensions['B'].width = 15
+            ws.column_dimensions['C'].width = 30
+            ws.column_dimensions['D'].width = 10
+            for i in range(5, 5 + len(fechas)):
+                if i <= 26:
+                    col_letra = chr(64 + i)
+                else:
+                    col_letra = chr(64 + (i // 26)) + chr(64 + (i % 26))
+                ws.column_dimensions[col_letra].width = 12
         
         # Guardar
         output = io.BytesIO()
@@ -642,4 +725,6 @@ async def generar_reporte_profesor(
         raise
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")

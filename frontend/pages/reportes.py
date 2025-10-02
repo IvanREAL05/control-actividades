@@ -57,6 +57,7 @@ st.markdown("""
     font-weight: 500;
     font-family: 'Inter', sans-serif;
     transition: all 0.2s ease;
+    width: 100%;
 }
 
 .stButton > button:hover {
@@ -65,7 +66,7 @@ st.markdown("""
 
 .report-card {
     background: white;
-    padding: 1.2rem;
+    padding: 1.5rem;
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     margin-bottom: 1.5rem;
@@ -118,12 +119,53 @@ st.markdown("<hr>", unsafe_allow_html=True)
 
 # ---------- CONFIGURACIÓN API ----------
 API_BASE = "http://localhost:8000/api/reportes"
+API_HELPERS = "http://localhost:8000/api/helpers"
 
-# ---------- FUNCIÓN DE DESCARGA MEJORADA ----------
+# ---------- FUNCIONES AUXILIARES ----------
+@st.cache_data(ttl=300)
+def obtener_grupos():
+    try:
+        response = requests.get(f"{API_HELPERS}/grupos", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except:
+        return []
+
+@st.cache_data(ttl=300)
+def obtener_estudiantes():
+    try:
+        response = requests.get(f"{API_HELPERS}/estudiantes", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except:
+        return []
+
+@st.cache_data(ttl=300)
+def obtener_clases():
+    try:
+        response = requests.get(f"{API_HELPERS}/clases", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except:
+        return []
+
+@st.cache_data(ttl=300)
+def obtener_profesores():
+    try:
+        response = requests.get(f"{API_HELPERS}/profesores", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except:
+        return []
+
 def descargar_excel(url: str, params: dict = None):
     try:
-        with st.spinner("Generando reporte... esto puede tardar unos segundos"):
-            response = requests.get(url, params=params, timeout=30)
+        with st.spinner("⏳ Generando reporte... esto puede tardar unos segundos"):
+            response = requests.get(url, params=params, timeout=60)
         
         if response.status_code == 200:
             content_disp = response.headers.get("content-disposition", "")
@@ -138,28 +180,29 @@ def descargar_excel(url: str, params: dict = None):
                 data=response.content,
                 file_name=filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"download_{datetime.now().timestamp()}"
+                key=f"download_{datetime.now().timestamp()}",
+                use_container_width=True
             )
         else:
-            error_msg = response.json().get("detail", response.text)
+            error_msg = response.json().get("detail", response.text) if response.text else "Error desconocido"
             st.error(f"❌ Error del servidor: {error_msg}")
     except requests.exceptions.ConnectionError:
-        st.error("❌ No se pudo conectar con el servidor. ¿Está corriendo FastAPI en localhost:8000?")
+        st.error("❌ No se pudo conectar con el servidor. Verifica que FastAPI esté corriendo en localhost:8000")
     except requests.exceptions.Timeout:
         st.error("❌ La solicitud tardó demasiado. Intenta con un rango de fechas más pequeño.")
     except Exception as e:
-        st.exception(f"Error inesperado: {e}")
+        st.error(f"❌ Error inesperado: {str(e)}")
 
 # ---------- SECCIÓN DE REPORTES ----------
 st.subheader("📋 Generar Reportes")
 
 # Usar pestañas para organizar mejor
 tabs = st.tabs([
-    "Asistencias por Grupo",
-    "Reporte Individual",
-    "Actividades por Clase",
-    "Actividades General",
-    "Reporte de Profesor"
+    "📚 Asistencias por Grupo",
+    "👤 Reporte Individual",
+    "📝 Actividades por Clase",
+    "📊 Actividades General",
+    "👨‍🏫 Reporte de Profesor"
 ])
 
 # --- PESTAÑA 1: Asistencias por Grupo ---
@@ -167,23 +210,35 @@ with tabs[0]:
     st.markdown('<div class="report-card">', unsafe_allow_html=True)
     st.info("📄 Genera un reporte de asistencias de todos los alumnos de un grupo en un rango de fechas.")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        id_grupo = st.number_input("ID del grupo", min_value=1, value=1, key="grupo_id")
-    with col2:
-        fecha_inicio = st.date_input("Fecha inicio", value=date.today(), key="grupo_inicio")
-        fecha_fin = st.date_input("Fecha fin", value=date.today(), key="grupo_fin")
-    
-    if fecha_fin < fecha_inicio:
-        st.warning("⚠️ La fecha de fin no puede ser anterior a la de inicio.")
+    grupos = obtener_grupos()
+    if grupos:
+        opciones_grupos = {g["label"]: g["id"] for g in grupos}
+        grupo_seleccionado = st.selectbox(
+            "Selecciona el grupo",
+            options=list(opciones_grupos.keys()),
+            key="grupo_select"
+        )
+        id_grupo = opciones_grupos[grupo_seleccionado]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            fecha_inicio = st.date_input("Fecha inicio", value=date.today(), key="grupo_inicio")
+        with col2:
+            fecha_fin = st.date_input("Fecha fin", value=date.today(), key="grupo_fin")
+        
+        if fecha_fin < fecha_inicio:
+            st.warning("⚠️ La fecha de fin no puede ser anterior a la de inicio.")
+        else:
+            if st.button("📊 Generar reporte de grupo", key="btn_grupo"):
+                params = {
+                    "id_grupo": id_grupo,
+                    "fechaInicio": fecha_inicio.strftime("%Y-%m-%d"),
+                    "fechaFin": fecha_fin.strftime("%Y-%m-%d")
+                }
+                descargar_excel(f"{API_BASE}/excel", params)
     else:
-        if st.button(" Generar reporte de grupo", key="btn_grupo"):
-            params = {
-                "id_grupo": id_grupo,
-                "fechaInicio": fecha_inicio.strftime("%Y-%m-%d"),
-                "fechaFin": fecha_fin.strftime("%Y-%m-%d")
-            }
-            descargar_excel(f"{API_BASE}/excel", params)
+        st.warning("⚠️ No se pudieron cargar los grupos. Verifica la conexión con el servidor.")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- PESTAÑA 2: Reporte Individual ---
@@ -191,23 +246,52 @@ with tabs[1]:
     st.markdown('<div class="report-card">', unsafe_allow_html=True)
     st.info("👤 Reporte de asistencias de un estudiante específico en un rango de fechas.")
     
-    id_estudiante = st.number_input("ID del estudiante", min_value=1, value=1, key="est_id")
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_inicio = st.date_input("Fecha inicio", value=date.today(), key="est_inicio")
-    with col2:
-        fecha_fin = st.date_input("Fecha fin", value=date.today(), key="est_fin")
+    # Buscar por matrícula
+    matricula_buscar = st.text_input(
+        "Ingresa la matrícula del estudiante",
+        placeholder="Ejemplo: 100316933",
+        key="matricula_input"
+    )
     
-    if fecha_fin < fecha_inicio:
-        st.warning("⚠️ La fecha de fin no puede ser anterior a la de inicio.")
-    else:
-        if st.button(" Generar reporte individual", key="btn_est"):
-            params = {
-                "id_estudiante": id_estudiante,
-                "fechaInicio": fecha_inicio.strftime("%Y-%m-%d"),
-                "fechaFin": fecha_fin.strftime("%Y-%m-%d")
-            }
-            descargar_excel(f"{API_BASE}/excel/individual", params)
+    if matricula_buscar:
+        try:
+            # Buscar estudiante por matrícula
+            response = requests.get(
+                f"{API_HELPERS}/estudiantes",
+                timeout=10
+            )
+            if response.status_code == 200:
+                estudiantes = response.json()
+                estudiante_encontrado = next(
+                    (e for e in estudiantes if e["matricula"] == matricula_buscar),
+                    None
+                )
+                
+                if estudiante_encontrado:
+                    st.success(f"✅ Estudiante encontrado: {estudiante_encontrado['label']}")
+                    id_estudiante = estudiante_encontrado["id"]
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        fecha_inicio = st.date_input("Fecha inicio", value=date.today(), key="est_inicio")
+                    with col2:
+                        fecha_fin = st.date_input("Fecha fin", value=date.today(), key="est_fin")
+                    
+                    if fecha_fin < fecha_inicio:
+                        st.warning("⚠️ La fecha de fin no puede ser anterior a la de inicio.")
+                    else:
+                        if st.button("📄 Generar reporte individual", key="btn_est"):
+                            params = {
+                                "id_estudiante": id_estudiante,
+                                "fechaInicio": fecha_inicio.strftime("%Y-%m-%d"),
+                                "fechaFin": fecha_fin.strftime("%Y-%m-%d")
+                            }
+                            descargar_excel(f"{API_BASE}/excel/individual", params)
+                else:
+                    st.error("❌ No se encontró ningún estudiante con esa matrícula.")
+        except Exception as e:
+            st.error(f"❌ Error al buscar estudiante: {str(e)}")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- PESTAÑA 3: Actividades por Clase ---
@@ -215,9 +299,35 @@ with tabs[2]:
     st.markdown('<div class="report-card">', unsafe_allow_html=True)
     st.info("📚 Reporte detallado de actividades de una clase (una hoja por actividad).")
     
-    id_clase = st.number_input("ID de la clase", min_value=1, value=1, key="act_clase_id")
-    if st.button(" Generar reporte de actividades", key="btn_act_clase"):
-        descargar_excel(f"{API_BASE}/excel/clase/{id_clase}")
+    # Buscar por NRC
+    nrc_buscar = st.text_input(
+        "Ingresa el NRC de la clase",
+        placeholder="Ejemplo: 025",
+        key="nrc_actividad_input"
+    )
+    
+    if nrc_buscar:
+        try:
+            # Buscar clase por NRC
+            response = requests.get(f"{API_HELPERS}/clases", timeout=10)
+            if response.status_code == 200:
+                clases = response.json()
+                clase_encontrada = next(
+                    (c for c in clases if c["nrc"] == nrc_buscar),
+                    None
+                )
+                
+                if clase_encontrada:
+                    st.success(f"✅ Clase encontrada: {clase_encontrada['label']}")
+                    id_clase = clase_encontrada["id"]
+                    
+                    if st.button("📝 Generar reporte de actividades", key="btn_act_clase"):
+                        descargar_excel(f"{API_BASE}/excel/clase/{id_clase}")
+                else:
+                    st.error("❌ No se encontró ninguna clase con ese NRC.")
+        except Exception as e:
+            st.error(f"❌ Error al buscar clase: {str(e)}")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- PESTAÑA 4: Reporte General de Actividades ---
@@ -225,9 +335,35 @@ with tabs[3]:
     st.markdown('<div class="report-card">', unsafe_allow_html=True)
     st.info("📊 Reporte consolidado de todas las actividades de una clase en una sola hoja.")
     
-    id_clase = st.number_input("ID de la clase", min_value=1, value=1, key="act_general_id")
-    if st.button(" Generar reporte general", key="btn_act_general"):
-        descargar_excel(f"{API_BASE}/excel/clase/general/{id_clase}")
+    # Buscar por NRC
+    nrc_buscar = st.text_input(
+        "Ingresa el NRC de la clase",
+        placeholder="Ejemplo: 025",
+        key="nrc_general_input"
+    )
+    
+    if nrc_buscar:
+        try:
+            # Buscar clase por NRC
+            response = requests.get(f"{API_HELPERS}/clases", timeout=10)
+            if response.status_code == 200:
+                clases = response.json()
+                clase_encontrada = next(
+                    (c for c in clases if c["nrc"] == nrc_buscar),
+                    None
+                )
+                
+                if clase_encontrada:
+                    st.success(f"✅ Clase encontrada: {clase_encontrada['label']}")
+                    id_clase = clase_encontrada["id"]
+                    
+                    if st.button("📊 Generar reporte general", key="btn_act_general"):
+                        descargar_excel(f"{API_BASE}/excel/clase/general/{id_clase}")
+                else:
+                    st.error("❌ No se encontró ninguna clase con ese NRC.")
+        except Exception as e:
+            st.error(f"❌ Error al buscar clase: {str(e)}")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- PESTAÑA 5: Reporte de Profesor ---
@@ -235,21 +371,42 @@ with tabs[4]:
     st.markdown('<div class="report-card">', unsafe_allow_html=True)
     st.info("👨‍🏫 Reporte de todas las clases asignadas a un profesor en un rango de fechas.")
     
-    id_profesor = st.number_input("ID del profesor", min_value=1, value=1, key="prof_id")
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_inicio = st.date_input("Fecha inicio", value=date(2025, 8, 4), key="prof_inicio")
-    with col2:
-        fecha_fin = st.date_input("Fecha fin", value=date.today(), key="prof_fin")
-    
-    if fecha_fin < fecha_inicio:
-        st.warning("⚠️ La fecha de fin no puede ser anterior a la de inicio.")
+    profesores = obtener_profesores()
+    if profesores:
+        opciones_profesores = {p["label"]: p["id"] for p in profesores}
+        profesor_seleccionado = st.selectbox(
+            "Selecciona el profesor",
+            options=list(opciones_profesores.keys()),
+            key="prof_select"
+        )
+        id_profesor = opciones_profesores[profesor_seleccionado]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            fecha_inicio = st.date_input("Fecha inicio", value=date(2025, 8, 4), key="prof_inicio")
+        with col2:
+            fecha_fin = st.date_input("Fecha fin", value=date.today(), key="prof_fin")
+        
+        if fecha_fin < fecha_inicio:
+            st.warning("⚠️ La fecha de fin no puede ser anterior a la de inicio.")
+        else:
+            if st.button("👨‍🏫 Generar reporte del profesor", key="btn_prof"):
+                params = {
+                    "id_profesor": id_profesor,
+                    "fechaInicio": fecha_inicio.strftime("%Y-%m-%d"),
+                    "fechaFin": fecha_fin.strftime("%Y-%m-%d")
+                }
+                descargar_excel(f"{API_BASE}/excel/profesor/{id_profesor}", params)
     else:
-        if st.button(" Generar reporte del profesor", key="btn_prof"):
-            params = {
-                "id_profesor": id_profesor,
-                "fechaInicio": fecha_inicio.strftime("%Y-%m-%d"),
-                "fechaFin": fecha_fin.strftime("%Y-%m-%d")
-            }
-            descargar_excel(f"{API_BASE}/excel/profesor/{id_profesor}", params)
+        st.warning("⚠️ No se pudieron cargar los profesores. Verifica la conexión con el servidor.")
+    
     st.markdown('</div>', unsafe_allow_html=True)
+
+# --- PIE DE PÁGINA ---
+st.markdown("---")
+st.markdown(
+    "<p style='text-align: center; color: #6b7280; font-size: 0.875rem;'>"
+    "Sistema de Reportes Académicos | UA PREP. GRAL. LÁZARO CÁRDENAS DEL RÍO"
+    "</p>",
+    unsafe_allow_html=True
+)
