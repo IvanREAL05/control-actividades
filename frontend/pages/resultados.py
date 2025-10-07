@@ -10,6 +10,7 @@ import base64
 import requests
 from collections import defaultdict
 from datetime import datetime
+import time
 
 st.set_page_config(page_title="Resultados en Tiempo Real", layout="wide")
 
@@ -48,6 +49,26 @@ st.markdown("""
     
     /* Ocultar cualquier texto de navegación */
     .css-1dp5vir {display: none;}
+    
+    /* Indicador de actualización en tiempo real */
+    .live-indicator {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 25px;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        z-index: 9999;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,6 +101,13 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# Indicador de actualización en tiempo real
+st.markdown("""
+<div class="live-indicator">
+    🔴 EN VIVO
+</div>
+""", unsafe_allow_html=True)
+
 # ===============================
 # Botón de recarga manual
 # ===============================
@@ -92,14 +120,31 @@ with col2:
 st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
 # ===============================
-# Data store singleton
+# Data store singleton con flag de actualización
 # ===============================
 @st.cache_resource
 def get_data_store():
-    data_store = defaultdict(lambda: {
-        "presentes":0, "justificantes":0, "ausentes":0,
-        "total":0, "nombre_grupo":"", "nombre_materia":""
-    })
+    class DataStore:
+        def __init__(self):
+            self.data = defaultdict(lambda: {
+                "presentes": 0, 
+                "justificantes": 0, 
+                "ausentes": 0,
+                "total": 0, 
+                "nombre_grupo": "", 
+                "nombre_materia": ""
+            })
+            self.updated = False
+            self.last_update = time.time()
+            
+        def mark_updated(self):
+            self.updated = True
+            self.last_update = time.time()
+            
+        def reset_updated(self):
+            self.updated = False
+    
+    store = DataStore()
 
     try:
         resp = requests.get("http://localhost:8000/api/clases/hoy")
@@ -108,59 +153,70 @@ def get_data_store():
 
         for clase in clases:
             id_clase = clase["id_clase"]
-            data_store[id_clase]["presentes"] = clase.get("presentes",0)
-            data_store[id_clase]["justificantes"] = clase.get("justificantes",0)
-            data_store[id_clase]["ausentes"] = clase.get("ausentes",0)
-            data_store[id_clase]["total"] = clase.get("total_estudiantes",0)
-            data_store[id_clase]["nombre_materia"] = clase.get("nombre_materia","")
-            data_store[id_clase]["nombre_grupo"] = clase.get("nombre_grupo","")
+            store.data[id_clase]["presentes"] = clase.get("presentes", 0)
+            store.data[id_clase]["justificantes"] = clase.get("justificantes", 0)
+            store.data[id_clase]["ausentes"] = clase.get("ausentes", 0)
+            store.data[id_clase]["total"] = clase.get("total_estudiantes", 0)
+            store.data[id_clase]["nombre_materia"] = clase.get("nombre_materia", "")
+            store.data[id_clase]["nombre_grupo"] = clase.get("nombre_grupo", "")
     except Exception as e:
         st.error(f"No se pudieron cargar los datos iniciales: {e}")
 
-    return data_store
+    return store
 
 data_store = get_data_store()
 
 # ===============================
-# WebSocket listener
+# WebSocket listener con notificación de actualización
 # ===============================
 @st.cache_resource
 def start_ws():
     def on_message(ws, message):
-        msg = json.loads(message)
-        id_clase = msg.get("id_clase")
-        estado = msg.get("estado")
+        try:
+            msg = json.loads(message)
+            id_clase = msg.get("id_clase")
+            estado = msg.get("estado")
 
-        if id_clase not in data_store:
-            data_store[id_clase] = {
-                "presentes":0, "justificantes":0, "ausentes":0,
-                "total":0, "nombre_grupo": msg.get("nombre_grupo",""),
-                "nombre_materia": msg.get("nombre_materia","")
-            }
+            if id_clase not in data_store.data:
+                data_store.data[id_clase] = {
+                    "presentes": 0, 
+                    "justificantes": 0, 
+                    "ausentes": 0,
+                    "total": 0, 
+                    "nombre_grupo": msg.get("nombre_grupo", ""),
+                    "nombre_materia": msg.get("nombre_materia", "")
+                }
 
-        if estado == "presente":
-            data_store[id_clase]["presentes"] += 1
-        elif estado == "justificante":
-            data_store[id_clase]["justificantes"] += 1
-        else:
-            data_store[id_clase]["ausentes"] += 1
+            if estado == "presente":
+                data_store.data[id_clase]["presentes"] += 1
+            elif estado == "justificante":
+                data_store.data[id_clase]["justificantes"] += 1
+            else:
+                data_store.data[id_clase]["ausentes"] += 1
 
-        data_store[id_clase]["total"] = (
-            data_store[id_clase]["presentes"] +
-            data_store[id_clase]["justificantes"] +
-            data_store[id_clase]["ausentes"]
-        )
-        data_store[id_clase]["nombre_materia"] = msg.get("nombre_materia", data_store[id_clase]["nombre_materia"])
-        data_store[id_clase]["nombre_grupo"] = msg.get("nombre_grupo", data_store[id_clase]["nombre_grupo"])
+            data_store.data[id_clase]["total"] = (
+                data_store.data[id_clase]["presentes"] +
+                data_store.data[id_clase]["justificantes"] +
+                data_store.data[id_clase]["ausentes"]
+            )
+            data_store.data[id_clase]["nombre_materia"] = msg.get("nombre_materia", data_store.data[id_clase]["nombre_materia"])
+            data_store.data[id_clase]["nombre_grupo"] = msg.get("nombre_grupo", data_store.data[id_clase]["nombre_grupo"])
+
+            # Marcar que hubo una actualización
+            data_store.mark_updated()
+            print(f"✅ Asistencia actualizada: {estado} en clase {id_clase}")
+            
+        except Exception as e:
+            print(f"❌ Error procesando mensaje WebSocket: {e}")
 
     def on_error(ws, error):
-        print("WebSocket error:", error)
+        print(f"❌ WebSocket error: {error}")
 
     def on_close(ws, close_status_code, close_msg):
-        print("WebSocket cerrado")
+        print("🔴 WebSocket cerrado")
 
     def on_open(ws):
-        print("Conectado al WebSocket de asistencia")
+        print("🟢 Conectado al WebSocket de asistencia")
 
     ws = websocket.WebSocketApp(
         "ws://localhost:8000/api/clases/ws/attendances",
@@ -176,30 +232,46 @@ def start_ws():
 start_ws()
 
 # ===============================
+# Auto-refresh cada 3 segundos si hay actualizaciones
+# ===============================
+placeholder = st.empty()
+
+# Verificar si hay actualizaciones pendientes
+if data_store.updated:
+    print("🔄 Hay actualizaciones pendientes, re-renderizando...")
+    data_store.reset_updated()
+    time.sleep(0.5)  # Pequeña pausa para acumular múltiples actualizaciones
+    st.rerun()
+
+# ===============================
 # Renderizar dashboard
 # ===============================
-total_clases = len(data_store)
+total_clases = len(data_store.data)
 slide_counter = 0
 
+if total_clases == 0:
+    st.warning("⚠️ No hay clases programadas para hoy")
+    st.stop()
+
 slides_html = ""
-for id_clase, info in data_store.items():
+for id_clase, info in data_store.data.items():
     slide_counter += 1
     porcentaje_asistencia = (info['presentes'] / info['total'] * 100) if info['total'] > 0 else 0
     
     df = pd.DataFrame([
-        {"Estado":"Presentes", "Cantidad":info["presentes"]},
-        {"Estado":"Justificantes", "Cantidad":info["justificantes"]},
-        {"Estado":"Ausentes", "Cantidad":info["ausentes"]},
+        {"Estado": "Presentes", "Cantidad": info["presentes"]},
+        {"Estado": "Justificantes", "Cantidad": info["justificantes"]},
+        {"Estado": "Ausentes", "Cantidad": info["ausentes"]},
     ])
     
     fig_bar = px.bar(
         df, x="Estado", y="Cantidad", text="Cantidad",
         color="Estado",
-        color_discrete_map={"Presentes":"#10b981", "Ausentes":"#ef4444", "Justificantes":"#f59e0b"}
+        color_discrete_map={"Presentes": "#10b981", "Ausentes": "#ef4444", "Justificantes": "#f59e0b"}
     )
     fig_bar.update_traces(textfont_size=22, textposition="outside", textfont_family="Quicksand")
     fig_bar.update_layout(
-        margin=dict(t=60,b=40,l=30,r=30), 
+        margin=dict(t=60, b=40, l=30, r=30), 
         height=450, 
         showlegend=False,
         paper_bgcolor='rgba(0,0,0,0)',
@@ -524,7 +596,6 @@ body {{
     border-radius: 5px;
 }}
 
-/* Para manejar muchas clases (30+) */
 .swiper-pagination-bullets {{
     display: flex;
     flex-wrap: wrap;
@@ -533,7 +604,6 @@ body {{
     gap: 5px;
 }}
 
-/* Contador de slides */
 .slide-counter {{
     position: absolute;
     top: 15px;
@@ -629,7 +699,6 @@ const swiper = new Swiper('.swiper-container', {{
     }}
 }});
 
-// Mostrar indicador visual al cambiar de slide
 swiper.on('slideChange', function() {{
     console.log('Slide actual:', swiper.realIndex + 1, 'de', totalSlides);
 }});
@@ -637,3 +706,9 @@ swiper.on('slideChange', function() {{
 """
 
 components.html(html, height=1150, scrolling=False)
+
+# ===============================
+# Auto-refresh programado cada 2 segundos
+# ===============================
+time.sleep(2)
+st.rerun()
