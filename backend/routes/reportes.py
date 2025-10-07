@@ -728,3 +728,160 @@ async def generar_reporte_profesor(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
+    
+@router.get("/excel/clase/completo/{id_clase}", response_class=StreamingResponse)
+async def excel_completo_clase(id_clase: int):
+    """
+    Genera un Excel completo de la clase con actividades y asistencias
+    """
+    try:
+        # --- 1. Obtener datos de la clase ---
+        clase_query = await fetch_one("""
+            SELECT c.id_clase, m.nombre AS materia, g.nombre AS grupo
+            FROM clase c
+            LEFT JOIN materia m ON c.id_materia = m.id_materia
+            LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
+            WHERE c.id_clase = %s
+        """, [id_clase])
+
+        if not clase_query:
+            raise HTTPException(status_code=404, detail="Clase no encontrada")
+
+        materia = clase_query['materia']
+        grupo = clase_query['grupo']
+
+        # --- 2. Actividades ---
+        actividades = await fetch_all("""
+            SELECT id_actividad, titulo
+            FROM actividad
+            WHERE id_clase = %s
+            ORDER BY fecha_entrega ASC
+        """, [id_clase])
+
+        ids_actividades = [act['id_actividad'] for act in actividades]
+
+        # --- 3. Alumnos ---
+        alumnos = await fetch_all("""
+            SELECT id_estudiante, nombre, apellido, matricula, no_lista
+            FROM estudiante
+            WHERE id_grupo = (
+                SELECT id_grupo FROM clase WHERE id_clase = %s
+            )
+            ORDER BY no_lista
+        """, [id_clase])
+
+        # --- 4. Entregas ---
+        entregas = await fetch_all("""
+            SELECT id_estudiante, id_actividad, estado, calificacion
+            FROM actividad_estudiante
+            WHERE id_actividad IN (%s)
+        """ % ','.join(['%s']*len(ids_actividades)), ids_actividades)
+
+        entregas_map = {f"{e['id_estudiante']}_{e['id_actividad']}": e for e in entregas}
+
+        # --- 5. Asistencias ---
+        fecha_inicio = "2025-08-04"
+        fecha_fin = datetime.now().strftime("%Y-%m-%d")
+
+        fechas_asistencias_result = await fetch_all("""
+            SELECT DISTINCT fecha
+            FROM asistencia
+            WHERE id_clase = %s AND fecha BETWEEN %s AND %s
+            ORDER BY fecha
+        """, [id_clase, fecha_inicio, fecha_fin])
+
+        fechas_asistencias = [formato_fecha(f['fecha']) for f in fechas_asistencias_result]
+
+        asistencias = await fetch_all("""
+            SELECT id_estudiante, fecha, estado
+            FROM asistencia
+            WHERE id_clase = %s AND fecha IN (%s)
+        """ % ( "%s", ','.join(['%s']*len(fechas_asistencias)) ), [id_clase] + fechas_asistencias )
+
+        # --- 6. Crear workbook ---
+        workbook = Workbook()
+
+        # HOJA 1: ACTIVIDADES
+        sheet_actividades = workbook.active
+        sheet_actividades.title = limpiar_nombre_hoja(f"{materia}-{grupo}-Act")
+
+        header_act = ["No Lista", "Matrícula", "Nombre", "Grupo"]
+        for act in actividades:
+            header_act.append(act['titulo'])
+            header_act.append(f"Calificación - {act['titulo']}")
+        sheet_actividades.append(header_act)
+        for cell in sheet_actividades[1]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center")
+
+        for alumno in alumnos:
+            row_data = [
+                alumno['no_lista'],
+                alumno['matricula'],
+                f"{alumno['apellido']} {alumno['nombre']}",
+                grupo
+            ]
+
+            for act in actividades:
+                entrega = entregas_map.get(f"{alumno['id_estudiante']}_{act['id_actividad']}")
+                estado = entrega['estado'] if entrega else "pendiente"
+                calificacion = entrega['calificacion'] if entrega and entrega['calificacion'] is not None else 0
+                row_data.extend([estado, calificacion])
+
+            sheet_actividades.append(row_data)
+
+        for col in sheet_actividades.columns:
+            col.width = 20
+
+        # HOJA 2: ASISTENCIAS
+        sheet_asistencias = workbook.create_sheet(title=limpiar_nombre_hoja(f"{materia}-{grupo}-Asis"))
+        header_asist = ["No Lista", "Matrícula", "Nombre", "Grupo"] + fechas_asistencias
+        sheet_asistencias.append(header_asist)
+        for cell in sheet_asistencias[1]:
+            cell.font = Font(bold=True)
+
+        for est in alumnos:
+            row_data = [
+                est['no_lista'],
+                est['matricula'],
+                f"{est['nombre']} {est['apellido']}",
+                grupo
+            ]
+
+            for f in fechas_asistencias:
+                asistencia = next(
+                    (a for a in asistencias if a['id_estudiante']==est['id_estudiante'] and formato_fecha(a['fecha'])==f),
+                    None
+                )
+                row_data.append(asistencia['estado'] if asistencia else "—")
+
+            sheet_asistencias.append(row_data)
+
+        for col_idx, col in enumerate(sheet_asistencias.columns, start=1):
+            col.width = 15
+            if col_idx > 4:
+                for cell in col[1:]:
+                    val = str(cell.value).lower()
+                    if val == "presente":
+                        cell.fill = COLOR_PRESENTE
+                    elif val == "ausente":
+                        cell.fill = COLOR_AUSENTE
+                    elif val == "justificante":
+                        cell.fill = COLOR_JUSTIFICANTE
+
+        # --- 7. Enviar Excel ---
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        filename = f"ClaseCompleto_{materia}_{grupo}.xlsx"
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+
+        return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error generando el Excel completo: {str(e)}")

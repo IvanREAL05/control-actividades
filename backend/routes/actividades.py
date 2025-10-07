@@ -714,3 +714,111 @@ async def get_detalle_alumno(id_estudiante: int, id_clase: int):
     except Exception as e:
         print(f"❌ Error al obtener detalle del alumno: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+# Schema para request
+class ValidarEntregaRequest(BaseModel):
+    qr: str
+    id_actividad: int
+
+
+@router.post("/validar-entrega")
+async def validar_entrega(data: ValidarEntregaRequest):
+    logger.info("=== VALIDAR ENTREGA - REQUEST RECIBIDO ===")
+    logger.info(f"Body: {data.json()}")
+
+    qr = data.qr
+    id_actividad = data.id_actividad
+
+    if not qr or not id_actividad:
+        raise HTTPException(status_code=400, detail="Falta QR o id_actividad")
+
+    # Desencriptar QR
+    fernet_key = os.getenv("FERNET_KEY").encode()  # debe estar en .env
+    fernet = Fernet(fernet_key)
+
+    try:
+        decrypted_bytes = fernet.decrypt(qr.encode())
+        decrypted = decrypted_bytes.decode()
+        logger.info(f"QR desencriptado exitosamente: {decrypted}")
+    except InvalidToken:
+        logger.error("QR inválido o malformado")
+        raise HTTPException(status_code=400, detail="QR inválido")
+
+    partes = [p.strip() for p in decrypted.split("|")]
+    if len(partes) < 4:
+        raise HTTPException(status_code=400, detail="Formato QR inválido")
+
+    nombre_completo, matricula, grupo_qr, *_ = partes
+
+    # --- Consultas DB usando helpers ---
+    actividad = await fetch_one(
+        "SELECT id_actividad, id_clase, fecha_entrega, valor_maximo, tipo_actividad "
+        "FROM actividad WHERE id_actividad=%s",
+        (id_actividad,)
+    )
+    if not actividad:
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+
+    matricula_str = matricula.strip()
+
+    estudiante = await fetch_one(
+        "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula=%s",
+        (matricula_str,)
+    )
+    if not estudiante:
+        raise HTTPException(status_code=404, detail="Estudiante no encontrado")
+
+    grupo_db = await fetch_one(
+        "SELECT nombre FROM grupo WHERE id_grupo=%s",
+        (estudiante['id_grupo'],)
+    )
+    if not grupo_db or grupo_qr.lower() != grupo_db['nombre'].lower():
+        raise HTTPException(status_code=400, detail="El grupo del estudiante no coincide con el QR")
+
+    clase = await fetch_one(
+        "SELECT id_grupo FROM clase WHERE id_clase=%s",
+        (actividad['id_clase'],)
+    )
+    if not clase or clase['id_grupo'] != estudiante['id_grupo']:
+        raise HTTPException(status_code=400, detail="La actividad no corresponde al grupo del estudiante")
+
+    # Fecha actual CDMX
+    fecha_entrega_real = obtener_fecha_hora_cdmx_completa()
+
+    entrega = await fetch_one(
+        "SELECT estado, calificacion FROM actividad_estudiante "
+        "WHERE id_actividad=%s AND id_estudiante=%s",
+        (id_actividad, estudiante['id_estudiante'])
+    )
+
+    if entrega and entrega['estado'] == 'entregado':
+        return {
+            "success": True,
+            "tarde": False,
+            "id_estudiante": estudiante['id_estudiante'],
+            "nombre": nombre_completo,
+            "mensaje": f"({actividad['tipo_actividad']}) ya fue entregada anteriormente."
+        }
+
+    # Comparar fechas
+    fecha_entrega_actividad = actividad['fecha_entrega']
+    es_tarde = fecha_entrega_real > fecha_entrega_actividad
+    es_examen = actividad['tipo_actividad'] == 'examen'
+
+    if es_tarde or es_examen:
+        return {
+            "success": True,
+            "tarde": True,
+            "id_estudiante": estudiante['id_estudiante'],
+            "nombre": nombre_completo,
+            "mensaje": "Examen requiere calificación manual." if es_examen else "Entrega fuera de tiempo, se requiere calificación manual."
+        }
+    else:
+        return {
+            "success": True,
+            "tarde": False,
+            "id_estudiante": estudiante['id_estudiante'],
+            "nombre": nombre_completo,
+            "calificacion": actividad['valor_maximo'],
+            "mensaje": "Entrega a tiempo, se asignará calificación máxima automáticamente."
+        }

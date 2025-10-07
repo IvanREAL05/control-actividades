@@ -81,6 +81,17 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ===============================
+# Botón de recarga manual
+# ===============================
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    if st.button("🔄 Recargar Clases de Hoy", use_container_width=True, type="primary"):
+        st.cache_resource.clear()
+        st.rerun()
+
+st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+
+# ===============================
 # Data store singleton
 # ===============================
 @st.cache_resource

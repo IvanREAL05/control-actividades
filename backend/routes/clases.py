@@ -22,22 +22,40 @@ def convertir_a_hora(valor) -> str:
     return str(valor) 
 
 @router.get("/hoy")
-async def obtener_clases_hoy(turno: Optional[str] = "matutino"):
+async def obtener_clases_hoy(turno: Optional[str] = None):
     """
-    Devuelve las clases del día de hoy según el turno (matutino, vespertino o todos),
-    considerando solapamiento de horarios.
+    Devuelve las clases del día de hoy según el turno.
+    Si no se especifica turno, lo detecta automáticamente según la hora actual.
     """
     try:
-        fecha_hoy = obtener_fecha_hora_cdmx()["fecha"]
-        dia_semana = obtener_fecha_hora_cdmx()["dia"]
+        datos_cdmx = obtener_fecha_hora_cdmx()
+        fecha_hoy = datos_cdmx["fecha"]
+        dia_semana = datos_cdmx["dia"]
+        hora_actual = datos_cdmx["hora"]  # Esto es un objeto time
+
+        # Si no se especifica turno, detectarlo automáticamente
+        if turno is None:
+            # Matutino: 7:20 - 13:50
+            if hora_actual >= datetime.strptime("07:20:00", "%H:%M:%S").time() and \
+               hora_actual <= datetime.strptime("13:50:00", "%H:%M:%S").time():
+                turno = "matutino"
+            # Vespertino: 14:10 - 19:50
+            elif hora_actual >= datetime.strptime("14:10:00", "%H:%M:%S").time() and \
+                 hora_actual <= datetime.strptime("19:50:00", "%H:%M:%S").time():
+                turno = "vespertino"
+            # Fuera de horario: mostrar el siguiente turno
+            elif hora_actual < datetime.strptime("07:20:00", "%H:%M:%S").time():
+                turno = "matutino"  # Antes de las 7:20, mostrar matutino
+            else:
+                turno = "vespertino"  # Después de las 19:50, mostrar vespertino del día
 
         # Definir horarios por turno
         if turno == "matutino":
-            hora_inicio_turno = "07:00:00"
-            hora_fin_turno    = "13:05:00"
+            hora_inicio_turno = "07:20:00"
+            hora_fin_turno    = "13:50:00"
         elif turno == "vespertino":
-            hora_inicio_turno = "13:35:00"
-            hora_fin_turno    = "19:20:00"
+            hora_inicio_turno = "14:10:00"
+            hora_fin_turno    = "19:50:00"
         else:  # turno = "todos"
             hora_inicio_turno = "00:00:00"
             hora_fin_turno    = "23:59:59"
@@ -70,10 +88,12 @@ async def obtener_clases_hoy(turno: Optional[str] = "matutino"):
             ORDER BY hc.hora_inicio ASC
         """
         result = await fetch_all(query, (fecha_hoy, dia_semana, hora_fin_turno, hora_inicio_turno))
+        
         # Convertir los campos de hora
         for clase in result:
             clase['hora_inicio'] = convertir_a_hora(clase['hora_inicio'])
             clase['hora_fin'] = convertir_a_hora(clase['hora_fin'])
+        
         return result
 
     except Exception as e:
@@ -409,3 +429,4 @@ async def websocket_endpoint(websocket: WebSocket):
             # por ahora, si cliente envía ping/pong, lo ignoramos
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
