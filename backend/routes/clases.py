@@ -4,6 +4,7 @@ from utils.fecha import obtener_fecha_hora_cdmx
 from config.db import fetch_all, fetch_one
 from datetime import datetime, timedelta
 from routes.ws_manager import manager
+import asyncio
 
 router = APIRouter()
 
@@ -421,12 +422,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Simplemente mantén la conexión viva.
-            # Si quieres recibir mensajes del cliente, puedes usar:
-            msg = await websocket.receive_text()
-            await websocket.send_text(f"Recibido: {msg}")  # envia confirmación al cliente
-
-            # por ahora, si cliente envía ping/pong, lo ignoramos
+            # Solo mantén la conexión viva, sin bloquear
+            await asyncio.sleep(1)  # ✅ Evita CPU al 100%
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 

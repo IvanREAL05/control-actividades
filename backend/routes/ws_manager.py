@@ -1,34 +1,33 @@
-# ws_manager.py (o al inicio de routes/clases.py)
-from fastapi import WebSocket, WebSocketDisconnect
-import json
 from typing import List
+from fastapi import WebSocket
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        # Aceptar la conexión WebSocket
         await websocket.accept()
         self.active_connections.append(websocket)
+        print(f"✅ Cliente conectado. Total: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
+        print(f"❌ Cliente desconectado. Total: {len(self.active_connections)}")
 
     async def broadcast(self, message: str):
-        # enviar a todas las conexiones activas
-        to_remove = []
-        for connection in list(self.active_connections):
+        print(f"📡 Broadcasting a {len(self.active_connections)} clientes: {message[:100]}...")
+        disconnected = []
+        for connection in self.active_connections:
             try:
                 await connection.send_text(message)
-            except Exception:
-                # si falla, marcar para remover
-                to_remove.append(connection)
-        for c in to_remove:
-            self.disconnect(c)
+            except Exception as e:
+                print(f"Error enviando a cliente: {e}")
+                disconnected.append(connection)
+        
+        # Limpia conexiones muertas
+        for conn in disconnected:
+            self.disconnect(conn)
 
+# Instancia global
 manager = ConnectionManager()

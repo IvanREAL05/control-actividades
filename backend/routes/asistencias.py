@@ -4,7 +4,6 @@ from typing import Optional, Dict, Any
 import asyncio
 import logging
 import json
-
 from fastapi import APIRouter, HTTPException, Response, Query, Depends
 from pydantic import BaseModel
 import aiomysql
@@ -14,7 +13,6 @@ from openpyxl.styles import PatternFill, Font, Alignment
 import pytz
 from io import BytesIO
 from routes.ws_manager import manager
-
 # Importar la configuración de base de datos
 from config.db import get_pool, fetch_one, fetch_all, execute_query, get_db_connection, get_pool
 
@@ -185,6 +183,17 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
             (id_estudiante, id_grupo, id_clase_datos, nombre, apellido,
              id_asistencia, estado_actual) = resultado
 
+            # ✅ NUEVO: Obtener información de grupo y materia para WebSocket
+            await cursor.execute("""
+                SELECT g.nombre, m.nombre
+                FROM grupo g
+                JOIN clase c ON c.id_grupo = g.id_grupo
+                JOIN materia m ON c.id_materia = m.id_materia
+                WHERE c.id_clase = %s
+            """, (request.id_clase,))
+            info_clase = await cursor.fetchone()
+            nombre_grupo, nombre_materia = info_clase if info_clase else ("", "")
+
             # ============================
             # Caso: ya existe asistencia
             # ============================
@@ -205,8 +214,8 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                 )
                 await connection.commit()
 
-                # 🔔 Difusión WebSocket
-                await manager.broadcast(json.dumps({
+                # 🔔 Difusión WebSocket - ✅ CON INFORMACIÓN COMPLETA
+                mensaje_ws = json.dumps({
                     "evento": "asistencia_actualizada",
                     "id_estudiante": id_estudiante,
                     "nombre": nombre,
@@ -214,8 +223,14 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                     "id_clase": id_clase_datos,
                     "estado": request.estado,
                     "hora": hora_actual,
-                    "fecha": hoy
-                }))
+                    "fecha": hoy,
+                    "nombre_grupo": nombre_grupo,
+                    "nombre_materia": nombre_materia
+                })
+                
+                logger.info(f"📡 Enviando WebSocket: {mensaje_ws[:150]}...")
+                logger.info(f"👥 Clientes conectados: {len(manager.active_connections)}")
+                await manager.broadcast(mensaje_ws)
 
                 response_time = (datetime.now() - start_time).total_seconds() * 1000
                 logger.info(f"🔄 Asistencia actualizada ({response_time:.0f}ms): {nombre} {apellido} -> '{request.estado}'")
@@ -234,8 +249,8 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
             )
             await connection.commit()
 
-            # 🔔 Difusión WebSocket
-            await manager.broadcast(json.dumps({
+            # 🔔 Difusión WebSocket - ✅ CON INFORMACIÓN COMPLETA
+            mensaje_ws = json.dumps({
                 "evento": "nueva_asistencia",
                 "id_estudiante": id_estudiante,
                 "nombre": nombre,
@@ -243,8 +258,14 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                 "id_clase": request.id_clase,
                 "estado": request.estado,
                 "hora": hora_actual,
-                "fecha": hoy
-            }))
+                "fecha": hoy,
+                "nombre_grupo": nombre_grupo,
+                "nombre_materia": nombre_materia
+            })
+            
+            logger.info(f"📡 Enviando WebSocket: {mensaje_ws[:150]}...")
+            logger.info(f"👥 Clientes conectados: {len(manager.active_connections)}")
+            await manager.broadcast(mensaje_ws)
 
             response_time = (datetime.now() - start_time).total_seconds() * 1000
             logger.info(f"✅ Asistencia registrada ({response_time:.0f}ms): {nombre} {apellido} como '{request.estado}'")
@@ -261,6 +282,7 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
         response_time = (datetime.now() - start_time).total_seconds() * 1000
         logger.error(f"❌ Error ({response_time:.0f}ms): {error}")
         raise HTTPException(status_code=500, detail="Error del servidor")
+
 
 @router.get("/resumen")
 async def obtener_resumen(
