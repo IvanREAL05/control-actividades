@@ -3,14 +3,11 @@ import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 import streamlit.components.v1 as components
-import websocket
-import threading
 import json
 import base64
 import requests
 from collections import defaultdict
 from datetime import datetime
-import time
 
 st.set_page_config(page_title="Resultados en Tiempo Real", layout="wide")
 
@@ -43,11 +40,8 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Ocultar el botón de expandir/colapsar sidebar */
     button[kind="header"] {display: none;}
     [data-testid="collapsedControl"] {display: none;}
-    
-    /* Ocultar cualquier texto de navegación */
     .css-1dp5vir {display: none;}
     
     /* Indicador de actualización en tiempo real */
@@ -74,9 +68,6 @@ st.markdown("""
 
 # --- Cabecera Azul con Logos ---
 st.markdown(f"""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap');
-</style>
 <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); 
             padding: 30px 40px; 
             border-radius: 20px; 
@@ -114,147 +105,68 @@ st.markdown("""
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if st.button("🔄 Recargar Clases de Hoy", use_container_width=True, type="primary"):
-        st.cache_resource.clear()
+        st.cache_data.clear()
         st.rerun()
 
 st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
 # ===============================
-# Data store singleton con flag de actualización
+# Cargar datos iniciales
 # ===============================
-@st.cache_resource
-def get_data_store():
-    class DataStore:
-        def __init__(self):
-            self.data = defaultdict(lambda: {
-                "presentes": 0, 
-                "justificantes": 0, 
-                "ausentes": 0,
-                "total": 0, 
-                "nombre_grupo": "", 
-                "nombre_materia": ""
-            })
-            self.updated = False
-            self.last_update = time.time()
-            
-        def mark_updated(self):
-            self.updated = True
-            self.last_update = time.time()
-            
-        def reset_updated(self):
-            self.updated = False
-    
-    store = DataStore()
-
+@st.cache_data(ttl=300)  # Cache por 5 minutos
+def load_initial_data():
+    """Carga los datos iniciales desde el backend"""
     try:
-        resp = requests.get("http://localhost:8000/api/clases/hoy")
+        resp = requests.get("http://localhost:8000/api/clases/hoy", timeout=5)
         resp.raise_for_status()
         clases = resp.json()
+        
+        print(f"✅ Datos cargados: {len(clases)} clases")
+        return clases
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Error al cargar datos: {e}")
+        return []
 
-        for clase in clases:
-            id_clase = clase["id_clase"]
-            store.data[id_clase]["presentes"] = clase.get("presentes", 0)
-            store.data[id_clase]["justificantes"] = clase.get("justificantes", 0)
-            store.data[id_clase]["ausentes"] = clase.get("ausentes", 0)
-            store.data[id_clase]["total"] = clase.get("total_estudiantes", 0)
-            store.data[id_clase]["nombre_materia"] = clase.get("nombre_materia", "")
-            store.data[id_clase]["nombre_grupo"] = clase.get("nombre_grupo", "")
-    except Exception as e:
-        st.error(f"No se pudieron cargar los datos iniciales: {e}")
+# Cargar datos
+clases_data = load_initial_data()
 
-    return store
-
-data_store = get_data_store()
-
-# ===============================
-# WebSocket listener con notificación de actualización
-# ===============================
-@st.cache_resource
-def start_ws():
-    def on_message(ws, message):
-        try:
-            msg = json.loads(message)
-            id_clase = msg.get("id_clase")
-            estado = msg.get("estado")
-
-            if id_clase not in data_store.data:
-                data_store.data[id_clase] = {
-                    "presentes": 0, 
-                    "justificantes": 0, 
-                    "ausentes": 0,
-                    "total": 0, 
-                    "nombre_grupo": msg.get("nombre_grupo", ""),
-                    "nombre_materia": msg.get("nombre_materia", "")
-                }
-
-            if estado == "presente":
-                data_store.data[id_clase]["presentes"] += 1
-            elif estado == "justificante":
-                data_store.data[id_clase]["justificantes"] += 1
-            else:
-                data_store.data[id_clase]["ausentes"] += 1
-
-            data_store.data[id_clase]["total"] = (
-                data_store.data[id_clase]["presentes"] +
-                data_store.data[id_clase]["justificantes"] +
-                data_store.data[id_clase]["ausentes"]
-            )
-            data_store.data[id_clase]["nombre_materia"] = msg.get("nombre_materia", data_store.data[id_clase]["nombre_materia"])
-            data_store.data[id_clase]["nombre_grupo"] = msg.get("nombre_grupo", data_store.data[id_clase]["nombre_grupo"])
-
-            # Marcar que hubo una actualización
-            data_store.mark_updated()
-            print(f"✅ Asistencia actualizada: {estado} en clase {id_clase}")
-            
-        except Exception as e:
-            print(f"❌ Error procesando mensaje WebSocket: {e}")
-
-    def on_error(ws, error):
-        print(f"❌ WebSocket error: {error}")
-
-    def on_close(ws, close_status_code, close_msg):
-        print("🔴 WebSocket cerrado")
-
-    def on_open(ws):
-        print("🟢 Conectado al WebSocket de asistencia")
-
-    ws = websocket.WebSocketApp(
-        "ws://localhost:8000/api/clases/ws/attendances",
-        on_open=on_open,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close
-    )
-    thread = threading.Thread(target=ws.run_forever, daemon=True)
-    thread.start()
-    return ws
-
-start_ws()
+if not clases_data or len(clases_data) == 0:
+    st.warning("⚠️ No hay clases programadas para hoy o no se pudo conectar al backend")
+    st.info("🔍 Verifica que el backend esté corriendo en http://localhost:8000")
+    st.stop()
 
 # ===============================
-# Auto-refresh cada 3 segundos si hay actualizaciones
+# Procesar datos
 # ===============================
-placeholder = st.empty()
+data_dict = {}
+for clase in clases_data:
+    id_clase = clase["id_clase"]
+    
+    # Convertir Decimal a int/float
+    presentes = int(clase.get("presentes", 0))
+    justificantes = int(clase.get("justificantes", 0))
+    ausentes = int(clase.get("ausentes", 0))
+    total = int(clase.get("total_estudiantes", 0))
+    
+    data_dict[id_clase] = {
+        "presentes": presentes,
+        "justificantes": justificantes,
+        "ausentes": ausentes,
+        "total": total,
+        "nombre_materia": clase.get("nombre_materia", "Sin nombre"),
+        "nombre_grupo": clase.get("nombre_grupo", "Sin grupo")
+    }
 
-# Verificar si hay actualizaciones pendientes
-if data_store.updated:
-    print("🔄 Hay actualizaciones pendientes, re-renderizando...")
-    data_store.reset_updated()
-    time.sleep(0.5)  # Pequeña pausa para acumular múltiples actualizaciones
-    st.rerun()
+print(f"📊 Datos procesados: {len(data_dict)} clases")
 
 # ===============================
 # Renderizar dashboard
 # ===============================
-total_clases = len(data_store.data)
+total_clases = len(data_dict)
 slide_counter = 0
-
-if total_clases == 0:
-    st.warning("⚠️ No hay clases programadas para hoy")
-    st.stop()
-
 slides_html = ""
-for id_clase, info in data_store.data.items():
+
+for id_clase, info in data_dict.items():
     slide_counter += 1
     porcentaje_asistencia = (info['presentes'] / info['total'] * 100) if info['total'] > 0 else 0
     
@@ -283,7 +195,7 @@ for id_clase, info in data_store.data.items():
     chart_bar_html = pio.to_html(fig_bar, full_html=False, include_plotlyjs="cdn")
 
     slides_html += f"""
-    <div class="swiper-slide">
+    <div class="swiper-slide" data-clase-id="{id_clase}">
         <div class="slide-counter">{slide_counter} / {total_clases}</div>
         <div class="slide-card">
             <div class="card-header">
@@ -295,7 +207,7 @@ for id_clase, info in data_store.data.items():
                 <div class="stat-card total-card">
                     <div class="stat-icon">👥</div>
                     <div class="stat-content">
-                        <div class="stat-number">{info['total']}</div>
+                        <div class="stat-number" data-stat="total">{info['total']}</div>
                         <div class="stat-label">Total</div>
                     </div>
                 </div>
@@ -303,7 +215,7 @@ for id_clase, info in data_store.data.items():
                 <div class="stat-card present-card">
                     <div class="stat-icon">✅</div>
                     <div class="stat-content">
-                        <div class="stat-number">{info['presentes']}</div>
+                        <div class="stat-number" data-stat="presentes">{info['presentes']}</div>
                         <div class="stat-label">Presentes</div>
                     </div>
                 </div>
@@ -311,7 +223,7 @@ for id_clase, info in data_store.data.items():
                 <div class="stat-card justified-card">
                     <div class="stat-icon">📄</div>
                     <div class="stat-content">
-                        <div class="stat-number">{info['justificantes']}</div>
+                        <div class="stat-number" data-stat="justificantes">{info['justificantes']}</div>
                         <div class="stat-label">Justificantes</div>
                     </div>
                 </div>
@@ -319,7 +231,7 @@ for id_clase, info in data_store.data.items():
                 <div class="stat-card absent-card">
                     <div class="stat-icon">❌</div>
                     <div class="stat-content">
-                        <div class="stat-number">{info['ausentes']}</div>
+                        <div class="stat-number" data-stat="ausentes">{info['ausentes']}</div>
                         <div class="stat-label">Ausentes</div>
                     </div>
                 </div>
@@ -327,16 +239,16 @@ for id_clase, info in data_store.data.items():
             
             <div class="percentage-section">
                 <div class="percentage-label">
-                    Porcentaje de Asistencia: <span class="percentage-value">{porcentaje_asistencia:.1f}%</span>
+                    Porcentaje de Asistencia: <span class="percentage-value" data-stat="porcentaje">{porcentaje_asistencia:.1f}%</span>
                 </div>
                 <div class="percentage-bar">
-                    <div class="percentage-fill" style="width: {porcentaje_asistencia}%">
+                    <div class="percentage-fill" data-stat="barra" style="width: {porcentaje_asistencia}%">
                         <span class="percentage-text">{porcentaje_asistencia:.0f}%</span>
                     </div>
                 </div>
             </div>
             
-            <div class="charts-container">
+            <div class="charts-container" data-chart-id="{id_clase}">
                 {chart_bar_html}
             </div>
         </div>
@@ -453,6 +365,7 @@ body {{
     line-height: 1;
     margin-bottom: 12px;
     font-family: 'Quicksand', sans-serif;
+    transition: all 0.4s ease;
 }}
 
 .stat-label {{
@@ -509,6 +422,7 @@ body {{
     color: #10b981;
     font-size: 26px;
     font-family: 'Quicksand', sans-serif;
+    transition: all 0.4s ease;
 }}
 
 .percentage-bar {{
@@ -619,12 +533,20 @@ body {{
     font-family: 'Quicksand', sans-serif;
 }}
 
+@keyframes updateFlash {{
+    0%, 100% {{ transform: scale(1); }}
+    50% {{ transform: scale(1.15); }}
+}}
+
+.stat-number.updating {{
+    animation: updateFlash 0.6s ease;
+}}
+
 @media (max-width: 1024px) {{
     .stats-grid {{
         grid-template-columns: repeat(2, 1fr);
         gap: 20px;
     }}
-    
     .stat-number {{
         font-size: 50px;
     }}
@@ -634,24 +556,19 @@ body {{
     .swiper-slide {{ 
         width: 95vw; 
     }}
-    
     .slide-card {{
         padding: 25px;
     }}
-    
     .stats-grid {{
         grid-template-columns: 1fr;
         gap: 15px;
     }}
-    
     .stat-number {{
         font-size: 45px;
     }}
-    
     .card-header h3 {{
         font-size: 24px;
     }}
-    
     .percentage-label {{
         font-size: 18px;
     }}
@@ -668,8 +585,12 @@ body {{
 </div>
 
 <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
+console.log('🚀 Iniciando dashboard...');
+
 const totalSlides = {total_clases};
+console.log('📊 Total de clases:', totalSlides);
 
 const swiper = new Swiper('.swiper-container', {{
     slidesPerView: 1, 
@@ -700,15 +621,148 @@ const swiper = new Swiper('.swiper-container', {{
 }});
 
 swiper.on('slideChange', function() {{
-    console.log('Slide actual:', swiper.realIndex + 1, 'de', totalSlides);
+    console.log('📄 Slide actual:', swiper.realIndex + 1, 'de', totalSlides);
 }});
+
+// ===================================
+// WebSocket para actualizaciones en tiempo real
+// ===================================
+let ws;
+let reconnectInterval = 5000;
+let isConnecting = false;
+
+function connectWebSocket() {{
+    if (isConnecting) {{
+        console.log('⏳ Ya hay una conexión en proceso...');
+        return;
+    }}
+    
+    isConnecting = true;
+    console.log('🔄 Intentando conectar WebSocket...');
+    
+    try {{
+        ws = new WebSocket('ws://localhost:8000/api/clases/ws/attendances');
+        
+        ws.onopen = function() {{
+            console.log('🟢 WebSocket conectado correctamente');
+            isConnecting = false;
+        }};
+        
+        ws.onmessage = function(event) {{
+            try {{
+                const data = JSON.parse(event.data);
+                console.log('📩 Mensaje recibido:', data);
+                updateSlideData(data);
+            }} catch (error) {{
+                console.error('❌ Error parseando mensaje:', error);
+            }}
+        }};
+        
+        ws.onerror = function(error) {{
+            console.error('❌ WebSocket error:', error);
+            isConnecting = false;
+        }};
+        
+        ws.onclose = function() {{
+            console.log('🔴 WebSocket cerrado');
+            isConnecting = false;
+            console.log('⏰ Reconectando en 5 segundos...');
+            setTimeout(connectWebSocket, reconnectInterval);
+        }};
+    }} catch (error) {{
+        console.error('❌ Error creando WebSocket:', error);
+        isConnecting = false;
+        setTimeout(connectWebSocket, reconnectInterval);
+    }}
+}}
+
+function updateSlideData(data) {{
+    const idClase = data.id_clase;
+    const estado = data.estado;
+    
+    console.log(`🔄 Actualizando clase ${{idClase}} - Estado: ${{estado}}`);
+    
+    const slide = document.querySelector(`[data-clase-id="${{idClase}}"]`);
+    if (!slide) {{
+        console.warn('⚠️ No se encontró slide para clase:', idClase);
+        return;
+    }}
+    
+    const presentesEl = slide.querySelector('[data-stat="presentes"]');
+    const justificantesEl = slide.querySelector('[data-stat="justificantes"]');
+    const ausentesEl = slide.querySelector('[data-stat="ausentes"]');
+    const totalEl = slide.querySelector('[data-stat="total"]');
+    const porcentajeValueEl = slide.querySelector('[data-stat="porcentaje"]');
+    const barraEl = slide.querySelector('[data-stat="barra"]');
+    const barraTextEl = barraEl.querySelector('.percentage-text');
+    
+    let presentes = parseInt(presentesEl.textContent);
+    let justificantes = parseInt(justificantesEl.textContent);
+    let ausentes = parseInt(ausentesEl.textContent);
+    let total = parseInt(totalEl.textContent);
+    
+    if (estado === 'presente') {{
+        presentes++;
+        presentesEl.textContent = presentes;
+        presentesEl.classList.add('updating');
+        setTimeout(() => presentesEl.classList.remove('updating'), 600);
+    }} else if (estado === 'justificante') {{
+        justificantes++;
+        justificantesEl.textContent = justificantes;
+        justificantesEl.classList.add('updating');
+        setTimeout(() => justificantesEl.classList.remove('updating'), 600);
+    }} else if (estado === 'ausente') {{
+        ausentes++;
+        ausentesEl.textContent = ausentes;
+        ausentesEl.classList.add('updating');
+        setTimeout(() => ausentesEl.classList.remove('updating'), 600);
+    }}
+    
+    total = presentes + justificantes + ausentes;
+    totalEl.textContent = total;
+    totalEl.classList.add('updating');
+    setTimeout(() => totalEl.classList.remove('updating'), 600);
+    
+    const porcentaje = total > 0 ? (presentes / total * 100) : 0;
+    porcentajeValueEl.textContent = porcentaje.toFixed(1) + '%';
+    barraEl.style.width = porcentaje + '%';
+    barraTextEl.textContent = Math.round(porcentaje) + '%';
+    
+    updateChart(idClase, presentes, justificantes, ausentes);
+    
+    console.log(`✅ Actualizado correctamente: P=${{presentes}} J=${{justificantes}} A=${{ausentes}}`);
+}}
+
+function updateChart(idClase, presentes, justificantes, ausentes) {{
+    const chartContainer = document.querySelector(`[data-chart-id="${{idClase}}"]`);
+    if (!chartContainer) {{
+        console.warn('⚠️ No se encontró contenedor de gráfico para clase:', idClase);
+        return;
+    }}
+    
+    const plotlyDiv = chartContainer.querySelector('.plotly-graph-div');
+    if (!plotlyDiv) {{
+        console.warn('⚠️ No se encontró div de Plotly');
+        return;
+    }}
+    
+    try {{
+        Plotly.restyle(plotlyDiv, {{
+            y: [[presentes, justificantes, ausentes]],
+            text: [[presentes, justificantes, ausentes]]
+        }}, [0]);
+        console.log('📊 Gráfico actualizado');
+    }} catch (error) {{
+        console.error('❌ Error actualizando gráfico:', error);
+    }}
+}}
+
+// Iniciar WebSocket al cargar
+console.log('🚀 Iniciando WebSocket...');
+connectWebSocket();
+
+console.log('✅ Dashboard cargado completamente');
 </script>
 """
 
 components.html(html, height=1150, scrolling=False)
-
-# ===============================
-# Auto-refresh programado cada 2 segundos
-# ===============================
-time.sleep(2)
-st.rerun()
