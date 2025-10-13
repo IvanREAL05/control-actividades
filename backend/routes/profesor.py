@@ -336,6 +336,7 @@ async def todas_clases(id_profesor: int):
                 g.nombre AS grupo,
                 g.turno,
                 g.nivel,
+                c.id_grupo,   
                 hc.hora_inicio, 
                 hc.hora_fin, 
                 hc.dia,

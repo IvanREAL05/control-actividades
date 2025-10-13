@@ -7,6 +7,7 @@ import io
 from typing import Optional
 from config.db import fetch_all, fetch_one
 from utils.fecha import obtener_fecha_hora_cdmx
+import traceback
 
 router = APIRouter()
 
@@ -317,9 +318,9 @@ async def generar_reporte_individual(
 # ==================== REPORTE DE ACTIVIDADES POR CLASE ====================
 @router.get("/excel/clase/{id_clase}")
 async def generar_reporte_actividades_clase(id_clase: int):
-    """Genera reporte de actividades de una clase (una hoja por actividad)"""
+    """Genera reporte Excel con actividades de una clase (una hoja por actividad)"""
     try:
-        # Obtener datos de la clase
+        # 1. Obtener datos de la clase
         clase = await fetch_one("""
             SELECT 
                 c.id_clase,
@@ -334,7 +335,7 @@ async def generar_reporte_actividades_clase(id_clase: int):
         if not clase:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
         
-        # Obtener actividades
+        # 2. Obtener actividades de la clase
         actividades = await fetch_all("""
             SELECT id_actividad, titulo, fecha_entrega, valor_maximo
             FROM actividad
@@ -345,35 +346,37 @@ async def generar_reporte_actividades_clase(id_clase: int):
         if not actividades:
             raise HTTPException(status_code=404, detail="No hay actividades para esta clase")
         
-        # Obtener alumnos del grupo de la clase
+        # 3. Obtener alumnos del grupo
         alumnos = await fetch_all("""
-            SELECT e.id_estudiante, e.nombre, e.apellido, e.matricula, e.no_lista
-            FROM estudiante e
-            WHERE e.id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
-            ORDER BY e.no_lista
+            SELECT id_estudiante, nombre, apellido, matricula
+            FROM estudiante
+            WHERE id_grupo = (
+                SELECT id_grupo FROM clase WHERE id_clase = %s
+            )
+            ORDER BY apellido, nombre
         """, (id_clase,))
         
-        # Crear workbook
+        # 4. Crear workbook
         wb = Workbook()
         wb.remove(wb.active)
         
-        # Crear hoja por actividad
+        # 5. Crear una hoja por cada actividad
         for act in actividades:
             ws = wb.create_sheet(limpiar_nombre_hoja(act["titulo"]))
             
-            # Info de la actividad
+            # Información de la actividad
             ws.append([f"Actividad: {act['titulo']}"])
             ws.append([f"Fecha entrega: {formato_fecha(act['fecha_entrega'])}"])
             ws.append([f"Valor máximo: {act['valor_maximo']}"])
             ws.append([])
             
             # Encabezados
-            ws.append(["No. Lista", "Alumno", "Matrícula", "Estado", "Fecha entrega real", "Calificación"])
+            ws.append(["Alumno", "Matrícula", "Estado", "Fecha entrega real", "Calificación"])
             for cell in ws[5]:
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center")
             
-            # Obtener entregas de esta actividad
+            # 6. Obtener entregas de la actividad
             entregas = await fetch_all("""
                 SELECT id_estudiante, estado, fecha_entrega_real, calificacion
                 FROM actividad_estudiante
@@ -382,25 +385,24 @@ async def generar_reporte_actividades_clase(id_clase: int):
             
             entregas_map = {e["id_estudiante"]: e for e in entregas}
             
-            # Agregar alumnos
+            # 7. Agregar fila por cada alumno
             for alumno in alumnos:
                 entrega = entregas_map.get(alumno["id_estudiante"])
                 estado = entrega["estado"] if entrega else "pendiente"
                 
                 row_data = [
-                    alumno["no_lista"],
                     f"{alumno['apellido']} {alumno['nombre']}",
                     alumno["matricula"],
                     estado.capitalize(),
-                    formato_fecha(entrega["fecha_entrega_real"]) if entrega and entrega["fecha_entrega_real"] else "",
-                    entrega["calificacion"] if entrega and entrega["calificacion"] is not None else ""
+                    formato_fecha(entrega["fecha_entrega_real"]) if entrega and entrega.get("fecha_entrega_real") else "",
+                    entrega["calificacion"] if entrega and entrega.get("calificacion") is not None else ""
                 ]
                 
                 ws.append(row_data)
                 
-                # Colorear estado
+                # 🎨 Colorear celda de estado
                 current_row = ws.max_row
-                estado_cell = ws.cell(row=current_row, column=4)
+                estado_cell = ws.cell(row=current_row, column=3)
                 estado_cell.alignment = Alignment(horizontal="center")
                 
                 estado_lower = estado.lower()
@@ -411,15 +413,14 @@ async def generar_reporte_actividades_clase(id_clase: int):
                 elif estado_lower == "no entregado":
                     estado_cell.fill = COLOR_NO_ENTREGADO
             
-            # Ajustar columnas
-            ws.column_dimensions['A'].width = 10
-            ws.column_dimensions['B'].width = 30
+            # Ajustar ancho de columnas
+            ws.column_dimensions['A'].width = 30
+            ws.column_dimensions['B'].width = 15
             ws.column_dimensions['C'].width = 15
-            ws.column_dimensions['D'].width = 15
-            ws.column_dimensions['E'].width = 20
-            ws.column_dimensions['F'].width = 12
+            ws.column_dimensions['D'].width = 20
+            ws.column_dimensions['E'].width = 12
         
-        # Guardar
+        # 8. Generar archivo y enviarlo
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -435,10 +436,10 @@ async def generar_reporte_actividades_clase(id_clase: int):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error generando Excel: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generando el Excel: {str(e)}")
 
 # ==================== REPORTE GENERAL DE ACTIVIDADES ====================
 @router.get("/excel/clase/general/{id_clase}")
@@ -729,159 +730,433 @@ async def generar_reporte_profesor(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
     
-@router.get("/excel/clase/completo/{id_clase}", response_class=StreamingResponse)
-async def excel_completo_clase(id_clase: int):
-    """
-    Genera un Excel completo de la clase con actividades y asistencias
-    """
+@router.get("/excel/clase/completo/{id_clase}")
+async def generar_reporte_completo_clase(id_clase: int):
+    """Genera reporte Excel completo con actividades y asistencias"""
     try:
-        # --- 1. Obtener datos de la clase ---
-        clase_query = await fetch_one("""
-            SELECT c.id_clase, m.nombre AS materia, g.nombre AS grupo
+        def nombre_hoja_seguro(base: str, sufijo: str, max_len: int = 31) -> str:
+            nombre_base = base[:max_len - len(sufijo) - 1] if len(base) > (max_len - len(sufijo) - 1) else base
+            return f"{nombre_base}-{sufijo}"
+
+        # 1️⃣ Info de clase
+        clase = await fetch_one("""
+            SELECT c.id_clase, m.nombre AS materia, g.nombre AS grupo, c.id_grupo, c.id_materia
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
             WHERE c.id_clase = %s
-        """, [id_clase])
-
-        if not clase_query:
+        """, (id_clase,))
+        if not clase:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
 
-        materia = clase_query['materia']
-        grupo = clase_query['grupo']
+        materia = clase["materia"]
+        grupo = clase["grupo"]
+        id_grupo = clase["id_grupo"]
+        id_materia = clase["id_materia"]
 
-        # --- 2. Actividades ---
+        # 2️⃣ Actividades
         actividades = await fetch_all("""
             SELECT id_actividad, titulo
             FROM actividad
             WHERE id_clase = %s
             ORDER BY fecha_entrega ASC
-        """, [id_clase])
+        """, (id_clase,))
 
-        ids_actividades = [act['id_actividad'] for act in actividades]
-
-        # --- 3. Alumnos ---
+        # 3️⃣ Alumnos
         alumnos = await fetch_all("""
             SELECT id_estudiante, nombre, apellido, matricula, no_lista
             FROM estudiante
-            WHERE id_grupo = (
-                SELECT id_grupo FROM clase WHERE id_clase = %s
-            )
+            WHERE id_grupo = %s
             ORDER BY no_lista
-        """, [id_clase])
+        """, (id_grupo,))
 
-        # --- 4. Entregas ---
-        entregas = await fetch_all("""
-            SELECT id_estudiante, id_actividad, estado, calificacion
-            FROM actividad_estudiante
-            WHERE id_actividad IN (%s)
-        """ % ','.join(['%s']*len(ids_actividades)), ids_actividades)
+        # 4️⃣ Entregas
+        entregas_map = {}
+        if actividades:
+            actividad_ids = [a["id_actividad"] for a in actividades]
+            placeholders = ','.join(['%s'] * len(actividad_ids))
+            entregas = await fetch_all(f"""
+                SELECT id_estudiante, id_actividad, estado, calificacion
+                FROM actividad_estudiante
+                WHERE id_actividad IN ({placeholders})
+            """, tuple(actividad_ids))
+            for e in entregas:
+                key = f"{e['id_estudiante']}_{e['id_actividad']}"
+                entregas_map[key] = e
 
-        entregas_map = {f"{e['id_estudiante']}_{e['id_actividad']}": e for e in entregas}
-
-        # --- 5. Asistencias ---
-        fecha_inicio = "2025-08-04"
-        fecha_fin = datetime.now().strftime("%Y-%m-%d")
-
-        fechas_asistencias_result = await fetch_all("""
-            SELECT DISTINCT fecha
-            FROM asistencia
-            WHERE id_clase = %s AND fecha BETWEEN %s AND %s
-            ORDER BY fecha
-        """, [id_clase, fecha_inicio, fecha_fin])
-
-        fechas_asistencias = [formato_fecha(f['fecha']) for f in fechas_asistencias_result]
-
-        asistencias = await fetch_all("""
-            SELECT id_estudiante, fecha, estado
-            FROM asistencia
-            WHERE id_clase = %s AND fecha IN (%s)
-        """ % ( "%s", ','.join(['%s']*len(fechas_asistencias)) ), [id_clase] + fechas_asistencias )
-
-        # --- 6. Crear workbook ---
-        workbook = Workbook()
-
-        # HOJA 1: ACTIVIDADES
-        sheet_actividades = workbook.active
-        sheet_actividades.title = limpiar_nombre_hoja(f"{materia}-{grupo}-Act")
+        # 5️⃣ Crear workbook y hoja ACTIVIDADES
+        wb = Workbook()
+        ws_act = wb.active
+        ws_act.title = nombre_hoja_seguro(f"{materia}-{grupo}", "Act")
 
         header_act = ["No Lista", "Matrícula", "Nombre", "Grupo"]
         for act in actividades:
-            header_act.append(act['titulo'])
+            header_act.append(act["titulo"])
             header_act.append(f"Calificación - {act['titulo']}")
-        sheet_actividades.append(header_act)
-        for cell in sheet_actividades[1]:
+        ws_act.append(header_act)
+        for cell in ws_act[1]:
             cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = Alignment(horizontal="center", vertical="center")
 
+        # Rellenar datos y colores de estado
         for alumno in alumnos:
             row_data = [
-                alumno['no_lista'],
-                alumno['matricula'],
+                alumno["no_lista"],
+                alumno["matricula"],
                 f"{alumno['apellido']} {alumno['nombre']}",
                 grupo
             ]
-
             for act in actividades:
-                entrega = entregas_map.get(f"{alumno['id_estudiante']}_{act['id_actividad']}")
-                estado = entrega['estado'] if entrega else "pendiente"
-                calificacion = entrega['calificacion'] if entrega and entrega['calificacion'] is not None else 0
-                row_data.extend([estado, calificacion])
+                key = f"{alumno['id_estudiante']}_{act['id_actividad']}"
+                entrega = entregas_map.get(key)
+                estado = entrega["estado"] if entrega else "pendiente"
+                calificacion = entrega["calificacion"] if entrega and entrega.get("calificacion") is not None else 0
+                row_data.append(estado)
+                row_data.append(calificacion)
+            ws_act.append(row_data)
 
-            sheet_actividades.append(row_data)
+        # Aplicar colores a celdas de estado
+        for row in ws_act.iter_rows(min_row=2, min_col=5, max_col=4 + len(actividades)*2):
+            for idx, cell in enumerate(row):
+                if idx % 2 == 0:  # solo columnas de estado
+                    estado_val = str(cell.value).lower()
+                    if estado_val == "entregado":
+                        cell.fill = COLOR_ENTREGADO
+                    elif estado_val == "pendiente":
+                        cell.fill = COLOR_PENDIENTE
+                    elif estado_val == "no entregado":
+                        cell.fill = COLOR_NO_ENTREGADO
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.font = Font(bold=True)
 
-        for col in sheet_actividades.columns:
-            col.width = 20
+        # Ajustar ancho columnas
+        for col in ws_act.columns:
+            ws_act.column_dimensions[col[0].column_letter].width = 20
 
-        # HOJA 2: ASISTENCIAS
-        sheet_asistencias = workbook.create_sheet(title=limpiar_nombre_hoja(f"{materia}-{grupo}-Asis"))
-        header_asist = ["No Lista", "Matrícula", "Nombre", "Grupo"] + fechas_asistencias
-        sheet_asistencias.append(header_asist)
-        for cell in sheet_asistencias[1]:
+        # ===== HOJA ASISTENCIAS =====
+        ws_asis = wb.create_sheet(nombre_hoja_seguro(f"{materia}-{grupo}", "Asis"))
+
+        # Obtener asistencias
+        asistencias_query = """
+            SELECT 
+                e.id_estudiante,
+                CONCAT(e.nombre, ' ', e.apellido) AS nombre,
+                e.matricula,
+                a.estado,
+                a.fecha
+            FROM estudiante e
+            JOIN clase c ON c.id_grupo = e.id_grupo
+            LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante AND a.id_clase = c.id_clase
+            WHERE c.id_grupo = %s AND c.id_materia = %s
+            ORDER BY e.no_lista, a.fecha
+        """
+        resultado = await fetch_all(asistencias_query, (id_grupo, id_materia))
+
+        # Fechas únicas de asistencia (solo días que hubo clase)
+        fechas_unicas = sorted(list({formato_fecha(r["fecha"]) for r in resultado if r["fecha"]}))
+
+        # Agrupar por estudiante
+        estudiantes_map = {}
+        for row in resultado:
+            id_est = row["id_estudiante"]
+            if id_est not in estudiantes_map:
+                estudiantes_map[id_est] = {
+                    "nombre": row["nombre"],
+                    "matricula": row["matricula"],
+                    "estados": {}
+                }
+            if row["fecha"]:
+                fecha_str = formato_fecha(row["fecha"])
+                estudiantes_map[id_est]["estados"][fecha_str] = row["estado"]
+
+        # Encabezados
+        encabezados = ["Nombre", "Matrícula", "Grupo", "Materia"] + fechas_unicas + ["TOTAL P", "TOTAL A", "TOTAL J"]
+        ws_asis.append(encabezados)
+        for cell in ws_asis[1]:
             cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        for est in alumnos:
-            row_data = [
-                est['no_lista'],
-                est['matricula'],
-                f"{est['nombre']} {est['apellido']}",
-                grupo
+        # Llenar filas y conteos
+        for est in estudiantes_map.values():
+            fila = [
+                est["nombre"],
+                est["matricula"],
+                grupo,
+                materia
             ]
-
-            for f in fechas_asistencias:
-                asistencia = next(
-                    (a for a in asistencias if a['id_estudiante']==est['id_estudiante'] and formato_fecha(a['fecha'])==f),
-                    None
+            total_P = total_A = total_J = 0
+            for f in fechas_unicas:
+                estado = est["estados"].get(f)
+                letra = (
+                    "P" if estado == "presente" else
+                    "A" if estado == "ausente" else
+                    "J" if estado == "justificante" else "-"
                 )
-                row_data.append(asistencia['estado'] if asistencia else "—")
+                fila.append(letra)
+                if letra == "P": total_P += 1
+                elif letra == "A": total_A += 1
+                elif letra == "J": total_J += 1
+            fila.extend([total_P, total_A, total_J])
+            ws_asis.append(fila)
 
-            sheet_asistencias.append(row_data)
+        # Colorear celdas
+        color_map = {"P": COLOR_PRESENTE, "A": COLOR_AUSENTE, "J": COLOR_JUSTIFICANTE}
+        for row in ws_asis.iter_rows(min_row=2, min_col=5):
+            for cell in row:
+                letra = str(cell.value).upper()
+                if letra in color_map:
+                    cell.fill = color_map[letra]
+                    cell.alignment = Alignment(horizontal="center")
+                    cell.font = Font(bold=True)
 
-        for col_idx, col in enumerate(sheet_asistencias.columns, start=1):
-            col.width = 15
-            if col_idx > 4:
-                for cell in col[1:]:
-                    val = str(cell.value).lower()
-                    if val == "presente":
-                        cell.fill = COLOR_PRESENTE
-                    elif val == "ausente":
-                        cell.fill = COLOR_AUSENTE
-                    elif val == "justificante":
-                        cell.fill = COLOR_JUSTIFICANTE
+        # Ajustar ancho columnas
+        for col in ws_asis.columns:
+            max_len = max(len(str(c.value)) if c.value else 0 for c in col)
+            ws_asis.column_dimensions[col[0].column_letter].width = max(12, max_len + 2)
 
-        # --- 7. Enviar Excel ---
-        output = io.BytesIO()
-        workbook.save(output)
-        output.seek(0)
+        # Guardar y enviar Excel
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        filename = f"ClaseCompleto_{grupo}_{materia}.xlsx"
 
-        filename = f"ClaseCompleto_{materia}_{grupo}.xlsx"
-        headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
-
-        return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generando el Excel completo: {str(e)}")
+
+
+
+@router.get("/excel/profesor/completo/{id_profesor}")
+async def reporte_asistencias_profesor(id_profesor: int):
+    try:
+        # Definir siempre las fechas
+        fechaInicio = "2025-08-04"  # inicio de curso
+        fechaFin = obtener_fecha_hora_cdmx()["fecha"].strftime("%Y-%m-%d")
+        print(f"Generando reporte para profesor {id_profesor}, fechas {fechaInicio} a {fechaFin}")
+
+        # 1️⃣ Obtener clases del profesor
+        clases_query = """
+            SELECT c.id_clase, c.nombre_clase, m.nombre AS materia, g.nombre AS grupo
+            FROM clase c
+            LEFT JOIN materia m ON c.id_materia = m.id_materia
+            LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
+            WHERE c.id_profesor = %s
+        """
+        clases = await fetch_all(clases_query, (id_profesor,))
+        if not clases:
+            raise HTTPException(status_code=404, detail="El profesor no tiene clases asignadas.")
+
+        # 2️⃣ Crear workbook
+        wb = Workbook()
+        wb.remove(wb.active)  # quitar hoja por defecto
+
+        for clase in clases:
+            nombre_hoja = limpiar_nombre_hoja(f"{clase['materia']} - {clase['grupo']}")
+            sheet = wb.create_sheet(nombre_hoja)
+
+            # 2.1 Obtener estudiantes del grupo
+            estudiantes_query = """
+                SELECT e.id_estudiante, e.nombre, e.apellido, e.matricula, e.no_lista, g.nombre AS grupo
+                FROM estudiante e
+                JOIN grupo g ON e.id_grupo = g.id_grupo
+                WHERE e.id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
+                ORDER BY e.no_lista
+            """
+            estudiantes = await fetch_all(estudiantes_query, (clase['id_clase'],))
+
+            # 2.2 Obtener asistencias del rango
+            asistencias_query = """
+                SELECT a.id_estudiante, a.fecha, a.estado
+                FROM asistencia a
+                WHERE a.id_clase = %s AND a.fecha BETWEEN %s AND %s
+            """
+            asistencias = await fetch_all(asistencias_query, (clase['id_clase'], fechaInicio, fechaFin))
+
+            # 2.3 Fechas únicas de asistencia
+            fechas = sorted(list({formato_fecha(a['fecha']) for a in asistencias}))
+
+            # 2.4 Cabecera
+            header = ["No Lista", "Matrícula", "Nombre", "Grupo"] + fechas
+            sheet.append(header)
+            for cell in sheet[1]:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal="center")
+
+            # 2.5 Filas de estudiantes
+            for est in estudiantes:
+                row = [
+                    est['no_lista'],
+                    est['matricula'],
+                    f"{est['nombre']} {est['apellido']}",
+                    est['grupo']
+                ]
+                for f in fechas:
+                    a = next((x for x in asistencias if x['id_estudiante'] == est['id_estudiante'] and formato_fecha(x['fecha']) == f), None)
+                    row.append(a['estado'] if a else "—")
+                sheet.append(row)
+
+            # 2.6 Colorear celdas
+            for r in sheet.iter_rows(min_row=2, min_col=5):
+                for cell in r:
+                    if cell.value:
+                        val = str(cell.value).lower()
+                        if val == "presente":
+                            cell.fill = COLOR_PRESENTE
+                        elif val == "ausente":
+                            cell.fill = COLOR_AUSENTE
+                        elif val == "justificante":
+                            cell.fill = COLOR_JUSTIFICANTE
+
+            # 2.7 Ajustar ancho de columnas
+            for col in sheet.columns:
+                max_length = max(len(str(cell.value or "")) for cell in col)
+                sheet.column_dimensions[col[0].column_letter].width = max(15, max_length)
+
+        # 3️⃣ Enviar Excel
+        stream = io.BytesIO()
+        wb.save(stream)
+        stream.seek(0)
+
+        return StreamingResponse(
+            stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=Reporte_Profesor_{id_profesor}.xlsx"}
+        )
+
+    except Exception as e:
+        print("❌ ERROR DETALLADO:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error generando reporte: {str(e)}")
+
+
+@router.get("/alumnos/clase/{id_clase}/excel")
+async def exportar_excel_alumnos_clase(id_clase: int):
+    try:
+        # 1️⃣ Obtener info de grupo y materia de la clase
+        clase_info_query = """
+            SELECT 
+                c.id_grupo,
+                c.id_materia,
+                g.nombre AS nombre_grupo,
+                m.nombre AS nombre_materia
+            FROM clase c
+            JOIN grupo g ON c.id_grupo = g.id_grupo
+            JOIN materia m ON c.id_materia = m.id_materia
+            WHERE c.id_clase = %s
+        """
+        clase_info = await fetch_one(clase_info_query, (id_clase,))
+
+        if not clase_info:
+            raise HTTPException(status_code=404, detail="Clase no encontrada")
+
+        id_grupo = clase_info["id_grupo"]
+        id_materia = clase_info["id_materia"]
+        nombre_grupo = clase_info["nombre_grupo"]
+        nombre_materia = clase_info["nombre_materia"]
+
+        # 2️⃣ Obtener asistencias del grupo y materia
+        asistencias_query = """
+            SELECT 
+                e.id_estudiante,
+                CONCAT(e.nombre, ' ', e.apellido) AS nombre,
+                e.matricula,
+                a.estado,
+                a.fecha
+            FROM estudiante e
+            JOIN clase c ON c.id_grupo = e.id_grupo
+            LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante AND a.id_clase = c.id_clase
+            WHERE c.id_grupo = %s AND c.id_materia = %s
+            ORDER BY e.nombre, e.apellido, a.fecha
+        """
+        resultado = await fetch_all(asistencias_query, (id_grupo, id_materia))
+
+        # 3️⃣ Extraer fechas únicas
+        fechas_unicas = sorted(
+            list({formato_fecha(r["fecha"]) for r in resultado if r["fecha"]})
+        )
+
+        # 4️⃣ Agrupar por estudiante
+        estudiantes_map = {}
+        for row in resultado:
+            id_est = row["id_estudiante"]
+            if id_est not in estudiantes_map:
+                estudiantes_map[id_est] = {
+                    "nombre": row["nombre"],
+                    "matricula": row["matricula"],
+                    "estados": {}
+                }
+            if row["fecha"]:
+                fecha_str = formato_fecha(row["fecha"])
+                estudiantes_map[id_est]["estados"][fecha_str] = row["estado"]
+
+        # 5️⃣ Crear workbook y worksheet
+        wb = Workbook()
+        ws = wb.active
+        ws.title = limpiar_nombre_hoja(f"Asistencias_{nombre_grupo}")
+
+        # 6️⃣ Encabezados
+        encabezados = ["Nombre", "Matrícula", "Grupo", "Materia"] + fechas_unicas
+        ws.append(encabezados)
+
+        # 7️⃣ Agregar filas con datos
+        for est in estudiantes_map.values():
+            fila = [
+                est["nombre"],
+                est["matricula"],
+                nombre_grupo,
+                nombre_materia,
+            ]
+            for f in fechas_unicas:
+                estado = est["estados"].get(f)
+                letra = (
+                    "P" if estado == "presente" else
+                    "A" if estado == "ausente" else
+                    "J" if estado == "justificante" else "A"
+                )
+                fila.append(letra)
+            ws.append(fila)
+
+        # 8️⃣ Estilo de encabezado
+        header_font = Font(bold=True)
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 9️⃣ Colorear celdas según estado
+        color_map = {"P": COLOR_PRESENTE, "A": COLOR_AUSENTE, "J": COLOR_JUSTIFICANTE}
+        for row in ws.iter_rows(min_row=2, min_col=5):
+            for cell in row:
+                letra = str(cell.value).upper()
+                if letra in color_map:
+                    cell.fill = color_map[letra]
+                    cell.alignment = Alignment(horizontal="center")
+                    cell.font = Font(bold=True)
+
+        # 10️⃣ Ajustar ancho de columnas
+        for col in ws.columns:
+            max_len = max(len(str(c.value)) if c.value else 0 for c in col)
+            ws.column_dimensions[col[0].column_letter].width = max(12, max_len + 2)
+
+        # 11️⃣ Enviar archivo Excel como respuesta
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        filename = f"Asistencias_{nombre_grupo}_{nombre_materia}.xlsx"
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except Exception as e:
+        print("❌ ERROR exportando Excel:", e)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error generando el Excel")

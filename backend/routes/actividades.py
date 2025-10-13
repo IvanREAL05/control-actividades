@@ -23,7 +23,7 @@ class ActividadCreate(BaseModel):
     fecha_entrega: str  # formato: "YYYY-MM-DD"
     hora_entrega: str   # formato: "HH:MM:SS"
     id_clase: int
-    valor_maximo: float = Field(..., ge=0, le=10)
+    valor_maximo: int = Field(..., ge=0, le=100)  # ahora int
 
 # --- Listar todas las actividades ---
 @router.get("/")
@@ -36,40 +36,70 @@ async def listar_actividades():
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="Error obteniendo actividades")
 
-#Cambio
-# --- Crear nueva actividad ---
+#Crear actividad
 @router.post("/")
 async def crear_actividad(data: ActividadCreate):
+    """
+    Crea una actividad y asigna automáticamente a todos los estudiantes del grupo con estado 'pendiente'.
+    """
     try:
         # Combinar fecha y hora de entrega
         fecha_entrega_completa = f"{data.fecha_entrega} {data.hora_entrega}"
         fecha_creacion = datetime.now()
 
-        query = """
-            INSERT INTO actividad (titulo, descripcion, tipo_actividad, fecha_creacion, fecha_entrega, id_clase, valor_maximo)
+        # 1️⃣ Insertar la actividad
+        query_insert = """
+            INSERT INTO actividad 
+                (titulo, descripcion, tipo_actividad, fecha_creacion, fecha_entrega, id_clase, valor_maximo)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         values = (
             data.titulo,
             data.descripcion,
-            data.tipo_actividad,   # ✅ Nuevo campo
+            data.tipo_actividad,
             fecha_creacion,
             fecha_entrega_completa,
             data.id_clase,
             data.valor_maximo
         )
+        cursor = await execute_query(query_insert, values)
+        id_actividad = cursor.lastrowid if hasattr(cursor, "lastrowid") else cursor
 
-        id_actividad = await execute_query(query, values)
+        # 2️⃣ Obtener el grupo de la clase
+        query_clase = "SELECT id_grupo FROM clase WHERE id_clase = %s"
+        clase = await fetch_one(query_clase, (data.id_clase,))
+        if not clase:
+            raise HTTPException(status_code=404, detail="Clase no encontrada")
+        id_grupo = clase["id_grupo"]
+
+        # 3️⃣ Obtener todos los estudiantes del grupo
+        query_estudiantes = "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s"
+        estudiantes = await fetch_all(query_estudiantes, (id_grupo,))
+
+        # 4️⃣ Insertar registros en actividad_estudiante para todos
+        if estudiantes:
+            insert_actividad_estudiante = """
+                INSERT INTO actividad_estudiante 
+                    (id_actividad, id_estudiante, estado, fecha_entrega_real, calificacion)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            for est in estudiantes:
+                await execute_query(
+                    insert_actividad_estudiante,
+                    (id_actividad, est["id_estudiante"], "pendiente", None, None)
+                )
+
         return {
-            "mensaje": "Actividad creada con éxito",
+            "success": True,
+            "message": f"✅ Actividad creada y {len(estudiantes)} estudiantes registrados como pendientes",
             "id_actividad": id_actividad
         }
 
     except Exception as e:
-        print(f"Error crear_actividad: {e}")
+        print(f"❌ Error crear_actividad: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error creando la actividad"
+            detail=str(e)
         )
 
 
@@ -353,6 +383,7 @@ class EstadoEstudianteRequest(BaseModel):
     estudiante_id: int
     actividad_id: int
     nuevo_estado: str
+    calificacion: Optional[int] = None 
 
 # DTO de salida (simplificado)
 class EstadoEstudianteResponse(BaseModel):
@@ -362,28 +393,50 @@ class EstadoEstudianteResponse(BaseModel):
 
 @router.post("/actualizar-estado-estudiante", response_model=EstadoEstudianteResponse)
 async def actualizar_estado_estudiante(payload: EstadoEstudianteRequest):
+    print("Payload recibido:", payload)
+
     estudiante_id = payload.estudiante_id
     actividad_id = payload.actividad_id
-    nuevo_estado = payload.nuevo_estado.lower()
+    nuevo_estado = payload.nuevo_estado.lower() if payload.nuevo_estado else None
 
-    # Validaciones
+    # 🔹 Validaciones básicas
     if not estudiante_id or not actividad_id or not nuevo_estado:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Faltan datos requeridos"
-        )
+        raise HTTPException(status_code=400, detail="Faltan datos requeridos")
 
-    estados_validos = ['pendiente', 'entregado', 'no entregado']
+    estados_validos = ["pendiente", "entregado", "no entregado"]
     if nuevo_estado not in estados_validos:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=400,
             detail=f"Estado no válido. Debe ser uno de: {', '.join(estados_validos)}"
         )
 
     try:
-        # 1. Verificar si ya existe registro
+        # 🔹 Obtener tipo de actividad y valor máximo
+        actividad_query = "SELECT tipo_actividad, valor_maximo FROM actividad WHERE id_actividad = %s"
+        actividad = await fetch_one(actividad_query, (actividad_id,))
+        if not actividad:
+            raise HTTPException(status_code=404, detail="Actividad no encontrada")
+
+        tipo_actividad = actividad["tipo_actividad"]
+        valor_maximo = int(actividad["valor_maximo"]) if actividad["valor_maximo"] else None
+        # 🔹 Determinar calificación según tipo
+        calificacion_final = payload.calificacion
+        # Si el estado es "no entregado" o "justificante", borrar calificación
+        if nuevo_estado in ["no entregado", "pendiente"]:
+            calificacion_final = None
+        elif tipo_actividad != "examen":
+            # Para actividades que no son examen, asignar calificación máxima automáticamente
+            calificacion_final = valor_maximo
+        elif tipo_actividad == "examen" and calificacion_final is None:
+            # Si es examen pero no se envió calificación
+            raise HTTPException(
+                status_code=400,
+                detail="Debe asignar una calificación manual al ser tipo 'examen'"
+            )
+
+        # 🔹 Buscar registro existente
         check_query = """
-            SELECT ae.id_actividad_estudiante, ae.estado, 
+            SELECT ae.id_actividad_estudiante, ae.estado,
                    e.nombre, e.apellido, e.id_estudiante
             FROM actividad_estudiante ae
             JOIN estudiante e ON ae.id_estudiante = e.id_estudiante
@@ -391,68 +444,125 @@ async def actualizar_estado_estudiante(payload: EstadoEstudianteRequest):
         """
         existente = await fetch_one(check_query, (actividad_id, estudiante_id))
 
-        fecha_entrega = obtener_fecha_hora_cdmx_completa() if nuevo_estado == 'entregado' else None
+        fecha_entrega = obtener_fecha_hora_cdmx_completa() if nuevo_estado == "entregado" else None
 
+        # =====================================================
+        # 🔹 SI YA EXISTE → ACTUALIZA
+        # =====================================================
         if existente:
-            # Actualizar registro existente
             update_query = """
                 UPDATE actividad_estudiante
                 SET estado = %s,
-                    fecha_entrega_real = %s
+                    fecha_entrega_real = %s,
+                    calificacion = %s
                 WHERE id_actividad = %s AND id_estudiante = %s
             """
-            await execute_query(update_query, (nuevo_estado, fecha_entrega, actividad_id, estudiante_id))
+            await execute_query(update_query, (nuevo_estado, fecha_entrega, calificacion_final, actividad_id, estudiante_id))
+
+            data_resp = {
+                "id_actividad_estudiante": existente.get("id_actividad_estudiante"),
+                "estado": nuevo_estado,
+                "calificacion": calificacion_final,
+                "fecha_entrega_real": str(fecha_entrega) if fecha_entrega else None,
+                "estudiante": {
+                    "id": existente.get("id_estudiante"),
+                    "nombre": existente.get("nombre", ""),
+                    "apellido": existente.get("apellido", "")
+                }
+            }
 
             return {
                 "success": True,
-                "message": f"Estado de {existente['nombre']} {existente['apellido']} actualizado a: {nuevo_estado}",
-                "data": {
-                    "id_actividad_estudiante": existente['id_actividad_estudiante'],
-                    "estado": nuevo_estado,
-                    "fecha_entrega_real": fecha_entrega.isoformat() if fecha_entrega else None,
-                    "estudiante": {
-                        "id": existente['id_estudiante'],
-                        "nombre": existente['nombre'],
-                        "apellido": existente['apellido']
-                    }
-                }
+                "message": f"✅ Estado de {data_resp['estudiante']['nombre']} {data_resp['estudiante']['apellido']} actualizado a: {nuevo_estado}",
+                "data": data_resp
             }
+
+        # =====================================================
+        # 🔹 SI NO EXISTE → CREA NUEVO REGISTRO
+        # =====================================================
         else:
-            # Verificar que el estudiante exista
             estudiante_query = "SELECT id_estudiante, nombre, apellido FROM estudiante WHERE id_estudiante = %s"
             estudiante = await fetch_one(estudiante_query, (estudiante_id,))
             if not estudiante:
                 raise HTTPException(status_code=404, detail="El estudiante especificado no existe")
 
             fecha_registro = obtener_fecha_hora_cdmx_completa()
-            insert_query = """
-                INSERT INTO actividad_estudiante (id_actividad, id_estudiante, estado, fecha_entrega_real, fecha_registro)
-                VALUES (%s, %s, %s, %s, %s)
-            """
-            await execute_query(insert_query, (actividad_id, estudiante_id, nuevo_estado, fecha_entrega, fecha_registro))
 
-            return {
-                "success": True,
-                "message": f"Registro creado para {estudiante['nombre']} {estudiante['apellido']} con estado: {nuevo_estado}",
-                "data": {
-                    "estado": nuevo_estado,
-                    "fecha_entrega_real": fecha_entrega.isoformat() if fecha_entrega else None,
-                    "fecha_registro": fecha_registro.isoformat(),
-                    "estudiante": {
-                        "id": estudiante['id_estudiante'],
-                        "nombre": estudiante['nombre'],
-                        "apellido": estudiante['apellido']
-                    }
+            insert_query = """
+                INSERT INTO actividad_estudiante (
+                    id_actividad, id_estudiante, estado, fecha_entrega_real, fecha_registro, calificacion
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            await execute_query(insert_query, (actividad_id, estudiante_id, nuevo_estado, fecha_entrega, fecha_registro, calificacion_final))
+
+            data_resp = {
+                "estado": nuevo_estado,
+                "calificacion": calificacion_final,
+                "fecha_entrega_real": str(fecha_entrega) if fecha_entrega else None,
+                "fecha_registro": str(fecha_registro),
+                "estudiante": {
+                    "id": estudiante.get("id_estudiante"),
+                    "nombre": estudiante.get("nombre", ""),
+                    "apellido": estudiante.get("apellido", "")
                 }
             }
 
+            return {
+                "success": True,
+                "message": f"🆕 Registro creado para {data_resp['estudiante']['nombre']} {data_resp['estudiante']['apellido']} con estado: {nuevo_estado}",
+                "data": data_resp
+            }
+
+    except HTTPException:
+        raise  # volver a lanzar errores esperados
+
     except Exception as e:
-        # Manejo de errores genéricos
+        print("⚠️ Error interno:", str(e))
         raise HTTPException(
             status_code=500,
             detail=f"Error interno al actualizar estado: {str(e)}"
         )
-    
+
+@router.get("/actividades/{actividad_id}")
+async def obtener_actividad_por_id(actividad_id: int):
+    """
+    Obtiene los detalles completos de una actividad específica
+    """
+    try:
+        query = """
+            SELECT 
+                id_actividad, 
+                id_clase, 
+                titulo, 
+                descripcion, 
+                tipo_actividad, 
+                fecha_entrega, 
+                fecha_creacion, 
+                valor_maximo
+            FROM actividad
+            WHERE id_actividad = %s 
+        """
+        
+        actividad = await fetch_one(query, (actividad_id,))
+        
+        if not actividad:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No se encontró la actividad con ID {actividad_id}"
+            )
+        
+        return actividad
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"⚠️ Error al obtener actividad: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno al obtener actividad: {str(e)}"
+        )
+
 # Modelo de respuesta
 class ActividadOut(BaseModel):
     id_actividad: int
@@ -460,7 +570,7 @@ class ActividadOut(BaseModel):
     descripcion: Optional[str]
     fecha_entrega: str
     fecha_creacion: str
-    valor_maximo: float
+    valor_maximo: int
     estado_estudiante: Optional[str] = None  # pendiente, entregado, no entregado
 
 #Cambio
@@ -502,7 +612,7 @@ async def get_actividades_recientes(
                 "descripcion": act["descripcion"],
                 "fecha_entrega": convertir_fecha_a_cdmx(act["fecha_entrega"]),
                 "fecha_creacion": convertir_fecha_a_cdmx(act["fecha_creacion"]),
-                "valor_maximo": float(act["valor_maximo"]),
+                "valor_maximo": int(act["valor_maximo"]),
                 "tipo_actividad": act["tipo_actividad"],   # ✅ agregado aquí
                 "estado_estudiante": estado
             })
@@ -696,11 +806,11 @@ async def get_detalle_alumno(id_estudiante: int, id_clase: int):
                 "titulo": r["titulo_actividad"],
                 "descripcion": r["descripcion_actividad"],
                 "fecha_entrega": convertir_fecha_a_cdmx(r["fecha_entrega"]),
-                "valor_maximo": float(r["valor_maximo"]) if r["valor_maximo"] is not None else 0,
+                "valor_maximo": int(r["valor_maximo"]) if r["valor_maximo"] is not None else 0,
                 "tipo_actividad": r["tipo_actividad"],
                 "estado": r["estado_entrega"],
                 "fecha_entrega_real": convertir_fecha_a_cdmx(r["fecha_entrega_real"]),
-                "calificacion": float(r["calificacion"]) if r["calificacion"] is not None else None
+                "calificacion": int(r["calificacion"]) if r["calificacion"] is not None else None
             }
             for r in rows if r["id_actividad"] is not None
         ]

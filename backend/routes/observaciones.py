@@ -131,3 +131,40 @@ async def eliminar_observacion(id: int):
         obs["fecha"] = obs["fecha"].strftime("%Y-%m-%d %H:%M:%S")
 
     return {"success": True, "observacion": obs}
+
+
+# Obtener total de observaciones por grupo
+@router.get("/grupo/{grupo_id}", response_model=dict)
+async def obtener_observaciones_por_grupo(grupo_id: int):
+    try:
+        query = """
+            SELECT 
+                g.id_grupo, 
+                g.nombre, 
+                COUNT(o.id) AS total_observaciones
+            FROM observaciones o
+            JOIN estudiante e ON e.id_estudiante = o.estudiante_id
+            JOIN grupo g ON g.id_grupo = e.id_grupo
+            WHERE g.id_grupo = %s
+            GROUP BY g.id_grupo, g.nombre
+        """
+        result = await fetch_one(query, (grupo_id,))
+
+        if not result:
+            return {
+                "success": True,
+                "mensaje": "No hay observaciones registradas",
+                "observaciones": [],
+                "total_observaciones": 0
+            }
+
+        return {
+            "success": True,
+            "mensaje": f"Total de observaciones para el grupo {result['nombre']}",
+            "observaciones": [],
+            "total_observaciones": result["total_observaciones"]
+        }
+
+    except Exception as e:
+        print(f"❌ Error al obtener observaciones por grupo: {e}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
