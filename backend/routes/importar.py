@@ -32,7 +32,7 @@ class EstudianteResponse(BaseModel):
     apellido: str
     correo: Optional[str]
     estado_actual: str
-    activo: int
+    activo: int  
     id_grupo: int
     nombre_grupo: str
     no_lista: int
@@ -83,6 +83,9 @@ async def buscar_por_matricula(matricula: str):
     resultado = await fetch_one(query, (matricula,))
     if not resultado:
         raise HTTPException(status_code=404, detail="Estudiante no encontrado")
+    
+        # 🟢 Agregar campo 'activo' según el valor de 'estado_actual'
+    resultado["activo"] = 1 if resultado["estado_actual"] == "activo" else 0
     return resultado
 
 

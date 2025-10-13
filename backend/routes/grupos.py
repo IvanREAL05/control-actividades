@@ -20,6 +20,16 @@ async def obtener_grupos():
         print(f"Error al obtener grupos: {e}")
         raise HTTPException(status_code=500, detail="Error al obtener grupos")
 
+@router.get("/lista")
+async def obtener_grupos():
+    """Obtiene todos los grupos disponibles"""
+    query = "SELECT id_grupo, nombre, turno, nivel FROM grupo ORDER BY nombre"
+    try:
+        grupos = await fetch_all(query)
+        return grupos  # ✅ Devuelve directamente la lista
+    except Exception as e:
+        print(f"Error al obtener grupos: {e}")
+        raise HTTPException(status_code=500, detail="Error al obtener grupos")
 
 # Obtener un grupo por ID
 @router.get("/{id_grupo}")
