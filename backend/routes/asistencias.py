@@ -1,7 +1,6 @@
 import os
 from datetime import datetime, date
 from typing import Optional, Dict, Any
-import asyncio
 import logging
 import json
 from fastapi import APIRouter, HTTPException, Response, Query, Depends
@@ -13,6 +12,7 @@ from openpyxl.styles import PatternFill, Font, Alignment
 import pytz
 from io import BytesIO
 from routes.ws_manager import manager
+from routes.ws_manager_tabla import tabla_manager
 # Importar la configuración de base de datos
 from config.db import get_pool, fetch_one, fetch_all, execute_query, get_db_connection, get_pool
 
@@ -231,6 +231,7 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                 logger.info(f"📡 Enviando WebSocket: {mensaje_ws[:150]}...")
                 logger.info(f"👥 Clientes conectados: {len(manager.active_connections)}")
                 await manager.broadcast(mensaje_ws)
+                await tabla_manager.broadcast(mensaje_ws, id_clase=request.id_clase)
 
                 response_time = (datetime.now() - start_time).total_seconds() * 1000
                 logger.info(f"🔄 Asistencia actualizada ({response_time:.0f}ms): {nombre} {apellido} -> '{request.estado}'")
@@ -266,6 +267,7 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
             logger.info(f"📡 Enviando WebSocket: {mensaje_ws[:150]}...")
             logger.info(f"👥 Clientes conectados: {len(manager.active_connections)}")
             await manager.broadcast(mensaje_ws)
+            await tabla_manager.broadcast(mensaje_ws, id_clase=request.id_clase)
 
             response_time = (datetime.now() - start_time).total_seconds() * 1000
             logger.info(f"✅ Asistencia registrada ({response_time:.0f}ms): {nombre} {apellido} como '{request.estado}'")
@@ -443,7 +445,6 @@ async def obtener_por_clase(fecha: Optional[str] = Query(None)):
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error al obtener resumen por clase: {str(error)}")
 
-
 @router.get("/alumnos/clase/{id_clase}/excel")
 async def generar_excel_clase(id_clase: int):
     """Generar Excel con asistencias de una clase específica"""
@@ -618,7 +619,6 @@ async def actualizar_asistencia(request: ActualizarAsistenciaRequest):
         logger.error(f"Error actualizando asistencia: {error}")
         raise HTTPException(status_code=500, detail="Error actualizando asistencia")
     
-
 @router.put("/estado")
 async def actualizar_estado(request: ActualizarEstadoRequest):
     """Actualizar estado de asistencia por ID de estudiante"""
@@ -660,7 +660,6 @@ async def actualizar_estado(request: ActualizarEstadoRequest):
         logger.error(f"Error al registrar o actualizar asistencia: {error}")
         raise HTTPException(status_code=500, detail="Error al registrar asistencia")
 
-
 @router.put("/actualizar-estado")
 async def actualizar_estado_alt(request: ActualizarEstadoRequest):
     """Endpoint alternativo para actualizar estado de asistencia"""
@@ -697,7 +696,6 @@ async def actualizar_estado_alt(request: ActualizarEstadoRequest):
     except Exception as error:
         logger.error(f"Error al actualizar estado: {error}")
         raise HTTPException(status_code=500, detail="Error interno al actualizar estado")
-
 
 @router.get("/resumen-general")
 async def obtener_resumen_general(
@@ -756,7 +754,6 @@ async def obtener_resumen_general(
         logger.error(f"❌ Error al obtener resumen general: {error}")
         raise HTTPException(status_code=500, detail="Error al obtener resumen general")
 
-
 @router.get("/lista-alumnos")
 async def obtener_lista_alumnos(
     turno: Optional[str] = Query(None),
@@ -805,8 +802,6 @@ async def obtener_lista_alumnos(
         logger.error(f"❌ Error en lista-alumnos: {error}")
         raise HTTPException(status_code=500, detail="Error al obtener lista de alumnos")
     
-
-
 @router.get("/excel-general")
 async def generar_excel_general(
     turno: Optional[str] = Query(None),
@@ -896,7 +891,6 @@ async def generar_excel_general(
         logger.error(f"❌ Error en excel-general: {error}")
         raise HTTPException(status_code=500, detail="Error al generar excel")
     
-
 # ✅ Función auxiliar para inicializar asistencias de una clase
 async def inicializar_asistencias(id_clase: int):
     """

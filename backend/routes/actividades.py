@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from datetime import datetime
-import aiomysql
+from routes.ws_manager import manager
+import json
 from config.db import fetch_one, fetch_all, execute_query
 import pytz
 from utils.fecha import obtener_fecha_hora_cdmx_completa, convertir_fecha_a_cdmx
@@ -10,11 +11,20 @@ import logging
 from cryptography.fernet import Fernet, InvalidToken
 from typing import List, Optional
 import json
+from routes.ws_manager_tabla import tabla_manager
 
 router = APIRouter()
 
 logger = logging.getLogger("api_actividades")
+logger.setLevel(logging.INFO)
 
+
+# Formato de logs (opcional pero útil)
+if not logger.hasHandlers():
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 # Schema para crear o actualizar actividad
 class ActividadCreate(BaseModel):
     titulo: str = Field(..., min_length=3, max_length=100)
@@ -102,8 +112,6 @@ async def crear_actividad(data: ActividadCreate):
             detail=str(e)
         )
 
-
-#Cambio
 # --- Actualizar actividad ---
 @router.put("/{id_actividad}")
 async def actualizar_actividad(id_actividad: int, data: ActividadCreate):
@@ -140,7 +148,6 @@ async def actualizar_actividad(id_actividad: int, data: ActividadCreate):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="Error actualizando la actividad")
 
-
 # --- Eliminar actividad ---
 @router.delete("/{id_actividad}")
 async def eliminar_actividad(id_actividad: int):
@@ -157,7 +164,6 @@ async def eliminar_actividad(id_actividad: int):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="Error eliminando la actividad")
 
-    
 #Obtener actividades de una clase
 @router.get("/clase/{id_clase}")
 async def obtener_actividades_por_clase(id_clase: int):
@@ -196,20 +202,16 @@ async def obtener_actividades_por_clase(id_clase: int):
         print("❌ Error obteniendo actividades:", e)
         raise HTTPException(status_code=500, detail="Error obteniendo actividades")
     
-
 # --- Request Body ---
 class EntregaQRRequest(BaseModel):
     qr: str
     id_actividad: int
 
-# Clave Fernet desde .env
-# Configuración de Fernet
 FERNET_KEY = os.getenv('FERNET_KEY')
 if not FERNET_KEY:
     raise ValueError("FERNET_KEY no está configurada en las variables de entorno")
 fernet_instance = Fernet(FERNET_KEY)
 
-#Cambio
 # --- Registrar entrega (QR escaneado) ---
 @router.post("/entrega")
 async def registrar_entrega(request: EntregaQRRequest):
@@ -217,10 +219,9 @@ async def registrar_entrega(request: EntregaQRRequest):
         raise HTTPException(status_code=400, detail="Falta QR o id_actividad")
 
     try:
-        # 🔐 Desencriptar QR
         fernet_instance = Fernet(FERNET_KEY)
         decrypted = fernet_instance.decrypt(request.qr.encode()).decode("utf-8")
-        logging.info(f"QR desencriptado: {decrypted}")
+        logger.info(f"QR desencriptado: {decrypted}")
 
         partes = [p.strip() for p in decrypted.split("|")]
         if len(partes) < 4:
@@ -228,7 +229,7 @@ async def registrar_entrega(request: EntregaQRRequest):
 
         nombre_completo, matricula, grupo_qr, clave_unica = partes
 
-        # 1️⃣ Validar actividad (ahora incluye tipo_actividad)
+        # 1️⃣ Validar actividad
         actividad = await fetch_one(
             """
             SELECT id_actividad, id_clase, fecha_entrega, valor_maximo, tipo_actividad
@@ -242,7 +243,7 @@ async def registrar_entrega(request: EntregaQRRequest):
 
         # 2️⃣ Buscar estudiante por matrícula
         estudiante = await fetch_one(
-            "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula=%s",
+            "SELECT id_estudiante, nombre, id_grupo FROM estudiante WHERE matricula=%s",
             (matricula,)
         )
         if not estudiante:
@@ -256,7 +257,7 @@ async def registrar_entrega(request: EntregaQRRequest):
         if grupo_estudiante["nombre"].lower() != grupo_qr.lower():
             raise HTTPException(status_code=400, detail="El grupo del estudiante no coincide con el grupo del QR")
 
-        # 4️⃣ Validar que la actividad corresponde al grupo del estudiante
+        # 4️⃣ Validar relación clase ↔ grupo
         clase = await fetch_one(
             "SELECT id_grupo FROM clase WHERE id_clase=%s",
             (actividad["id_clase"],)
@@ -264,20 +265,45 @@ async def registrar_entrega(request: EntregaQRRequest):
         if not clase or clase["id_grupo"] != estudiante["id_grupo"]:
             raise HTTPException(status_code=400, detail="La actividad no corresponde al grupo del estudiante")
 
-        # 5️⃣ Fecha de entrega real
         fecha_entrega_real = obtener_fecha_hora_cdmx_completa()
+        # Convertir ISO string a datetime si es necesario
+        if isinstance(fecha_entrega_real, str):
+            try:
+                fecha_entrega_real = datetime.fromisoformat(fecha_entrega_real)
+            except ValueError:
+                logger.error(f"⚠️ Formato inesperado en fecha_entrega_real: {fecha_entrega_real}")
+                raise HTTPException(status_code=500, detail="Error con la fecha del sistema")
 
-        # 6️⃣ Verificar si ya existe registro
+        # 5️⃣ Verificar si ya existe registro
         entrega = await fetch_one(
             "SELECT estado FROM actividad_estudiante WHERE id_actividad=%s AND id_estudiante=%s",
             (request.id_actividad, estudiante["id_estudiante"])
         )
 
+        # --- 📡 Datos que se enviarán al dashboard ---
+        evento_data = {
+            "tipo": "actividad",
+            "data": {
+                "id_actividad": request.id_actividad, 
+                "nombre": nombre_completo,
+                "matricula": matricula,
+                "grupo": grupo_estudiante["nombre"],
+                "actividad": actividad["tipo_actividad"],
+                "estado": "entregado",
+                "hora": fecha_entrega_real.strftime("%H:%M:%S")
+            }
+        }
+        # También añade logging para verificar
+        logger.info(f"📡 Enviando evento: {evento_data}")
+
         if entrega:
             if entrega["estado"] == "entregado":
+                # 🔸 Ya entregó antes → opcionalmente notificar igual
+                await manager.broadcast(json.dumps(evento_data))
+                await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
                 return {"success": True, "mensaje": f"{nombre_completo} ya entregó esta {actividad['tipo_actividad']} anteriormente."}
 
-            # 🔄 Actualizar registro existente
+            # 🔄 Actualizar entrega existente
             await execute_query(
                 """
                 UPDATE actividad_estudiante
@@ -286,9 +312,14 @@ async def registrar_entrega(request: EntregaQRRequest):
                 """,
                 (fecha_entrega_real, actividad["valor_maximo"], request.id_actividad, estudiante["id_estudiante"])
             )
+
+            # 📡 Emitir actualización a dashboards
+            await manager.broadcast(json.dumps(evento_data))
+            await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
             return {"success": True, "mensaje": f"{nombre_completo} actualizó su entrega de la {actividad['tipo_actividad']}"}
 
-        # 7️⃣ Insertar nuevo registro
+        # 🆕 Nueva entrega
+# 🆕 Nueva entrega
         await execute_query(
             """
             INSERT INTO actividad_estudiante
@@ -298,16 +329,17 @@ async def registrar_entrega(request: EntregaQRRequest):
             (request.id_actividad, estudiante["id_estudiante"], fecha_entrega_real, actividad["valor_maximo"])
         )
 
+        # 📡 Notificar nueva entrega
+        await manager.broadcast(json.dumps(evento_data))
+        await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
         return {"success": True, "mensaje": f"{nombre_completo} entregó la {actividad['tipo_actividad']}"}
-
+    
     except InvalidToken:
         raise HTTPException(status_code=400, detail="QR inválido o expirado")
     except Exception as e:
-        logging.error(f"Error en registrar_entrega: {e}")
+        logger.error(f"Error en registrar_entrega: {e}")
         raise HTTPException(status_code=500, detail="Error en el servidor")
 
-    
-#Cambio
 # --- Obtener estudiantes por actividad ---
 @router.get("/estudiantes/{id_actividad}")
 async def obtener_estudiantes_por_actividad(id_actividad: int):
@@ -377,7 +409,6 @@ async def obtener_estudiantes_por_actividad(id_actividad: int):
         print(f"❌ Error al obtener estudiantes de actividad: {e}")
         raise HTTPException(status_code=500, detail="Error al obtener estudiantes de actividad")
 
-    
 # DTO de entrada
 class EstadoEstudianteRequest(BaseModel):
     estudiante_id: int
@@ -624,8 +655,6 @@ async def get_actividades_recientes(
         logger.error(f"❌ Error al obtener actividades: {e}")
         return []
     
-
-
 #Nuevo
 @router.get("/historial/{id_clase}")
 async def get_historial(id_clase: int):
@@ -726,9 +755,6 @@ async def get_historial(id_clase: int):
         logger.error(f"❌ Error al obtener historial: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
     
-
-
-
 @router.get("/alumno/{id_estudiante}/clase/{id_clase}")
 async def get_detalle_alumno(id_estudiante: int, id_clase: int):
     """
@@ -830,7 +856,6 @@ class ValidarEntregaRequest(BaseModel):
     qr: str
     id_actividad: int
 
-
 @router.post("/validar-entrega")
 async def validar_entrega(data: ValidarEntregaRequest):
     logger.info("=== VALIDAR ENTREGA - REQUEST RECIBIDO ===")
@@ -894,6 +919,15 @@ async def validar_entrega(data: ValidarEntregaRequest):
 
     # Fecha actual CDMX
     fecha_entrega_real = obtener_fecha_hora_cdmx_completa()
+    
+    # Convertir a datetime si viene como string
+# Convertir ISO string a datetime si es necesario
+    if isinstance(fecha_entrega_real, str):
+        try:
+            fecha_entrega_real = datetime.fromisoformat(fecha_entrega_real)
+        except ValueError:
+            logger.error(f"⚠️ Formato inesperado en fecha_entrega_real: {fecha_entrega_real}")
+            raise HTTPException(status_code=500, detail="Error con la fecha del sistema")
 
     entrega = await fetch_one(
         "SELECT estado, calificacion FROM actividad_estudiante "
