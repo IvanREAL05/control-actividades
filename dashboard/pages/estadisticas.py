@@ -19,7 +19,16 @@ if not id_clase:
     if st.button("← Volver al inicio"):
         st.switch_page("app.py")
     st.stop()
+st.write("🔍 DEBUG - Session State:")
+st.write({
+    "login_exitoso": st.session_state.get("login_exitoso"),
+    "id_clase": st.session_state.get("id_clase"),
+    "id_profesor": st.session_state.get("id_profesor"),
+    "nombre_profesor": st.session_state.get("nombre_profesor"),
+})
 
+st.write("🔍 DEBUG - Query Params:")
+st.write(dict(st.query_params))
 # =============================================
 # ESTILOS CSS
 # =============================================

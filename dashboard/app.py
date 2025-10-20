@@ -15,6 +15,33 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+def verificar_login_desde_params():
+    """
+    Lee los datos de login desde query parameters después del redirect del WebSocket.
+    Los query params son más confiables que sessionStorage con Streamlit.
+    """
+    query_params = st.query_params
+    
+    if query_params.get("login_exitoso") == "true":
+        print("✅ Login detectado en query params")
+        
+        # Guardar en session_state
+        st.session_state.login_exitoso = True
+        st.session_state.id_clase = int(query_params.get("id_clase", 0))
+        st.session_state.id_profesor = int(query_params.get("id_profesor", 0))
+        st.session_state.nombre_profesor = query_params.get("nombre_profesor", "")
+        st.session_state.materia = query_params.get("materia", "")
+        st.session_state.grupo = query_params.get("grupo", "")
+        
+        print(f"📊 Datos guardados: Profesor {st.session_state.id_profesor} → Clase {st.session_state.id_clase}")
+        
+        # ⚠️ IMPORTANTE: Limpiar query params antes de redirigir
+        st.query_params.clear()
+        
+        return True
+    
+    return False
+
 # =============================================
 # ESTILOS CSS PROFESIONALES
 # =============================================
@@ -304,10 +331,16 @@ def crear_qr_pil_image(session_id: str):
 # VERIFICAR SI YA HAY LOGIN ACTIVO
 # =============================================
 
-# ✅ Si ya hay login exitoso, redirigir inmediatamente
-if "login_exitoso" in st.session_state and st.session_state.login_exitoso:
+
+#✅ PRIMERO: Verificar si vienen datos en query params (después del WebSocket)
+if verificar_login_desde_params():
+    print("🔄 Redirigiendo a estadísticas desde query params...")
     st.switch_page("pages/estadisticas.py")
 
+# ✅ SEGUNDO: Si ya hay login en session_state, redirigir
+if st.session_state.get("login_exitoso", False):
+    print("🔄 Redirigiendo a estadísticas desde session_state...")
+    st.switch_page("pages/estadisticas.py")
 # =============================================
 # INICIALIZACIÓN
 # =============================================
@@ -497,85 +530,89 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.login_status == "waiting":
     import streamlit.components.v1 as components
     
-    # ✅ CORREGIDO: Guardar datos en sessionStorage y redirigir
+    # ✅ VERSIÓN CORREGIDA CON LOGS Y REDIRECT POR QUERY PARAMS
     html_ws = f"""
     <script>
+        console.log('🚀 Iniciando WebSocket para sesión: {st.session_state.session_id}');
+        
         const ws = new WebSocket('ws://localhost:8000/ws/login/auth/{st.session_state.session_id}');
         
         ws.onopen = () => {{
-            console.log('✅ WebSocket conectado');
+            console.log('✅ WebSocket conectado exitosamente');
         }};
         
         ws.onmessage = (event) => {{
-            console.log('📩 Mensaje recibido:', event.data);
-            const data = JSON.parse(event.data);
+            console.log('📩 RAW MESSAGE:', event.data);
             
-            if (data.tipo === 'login_exitoso') {{
-                console.log('✅ Login exitoso detectado');
+            try {{
+                const data = JSON.parse(event.data);
+                console.log('📦 PARSED DATA:', JSON.stringify(data, null, 2));
+                console.log('🔑 TIPO:', data.tipo);
+                console.log('📊 DATOS:', data.datos);
                 
-                // Guardar datos en sessionStorage para que persistan
-                sessionStorage.setItem('login_exitoso', 'true');
-                sessionStorage.setItem('id_clase', data.datos.id_clase);
-                sessionStorage.setItem('id_profesor', data.datos.id_profesor);
-                sessionStorage.setItem('nombre_profesor', data.datos.nombre_profesor);
-                sessionStorage.setItem('materia', data.datos.materia);
-                sessionStorage.setItem('grupo', data.datos.grupo);
-                
-                // Notificar a Streamlit
-                window.parent.postMessage({{
-                    type: 'streamlit:setComponentValue',
-                    value: {{
-                        login_exitoso: true,
-                        datos: data.datos
+                if (data.tipo === 'login_exitoso') {{
+                    console.log('🎉 Login exitoso detectado!');
+                    console.log('📊 Datos completos:', data.datos);
+                    
+                    // Verificar que tengamos todos los campos necesarios
+                    if (!data.datos || !data.datos.id_clase) {{
+                        console.error('❌ Faltan datos en la respuesta:', data.datos);
+                        return;
                     }}
-                }}, '*');
-                
-                // Forzar recarga después de guardar datos
-                setTimeout(() => {{
-                    window.location.reload();
-                }}, 500);
+                    
+                    // Construir URL con query parameters
+                    const params = new URLSearchParams({{
+                        login_exitoso: 'true',
+                        id_clase: data.datos.id_clase,
+                        id_profesor: data.datos.id_profesor,
+                        nombre_profesor: data.datos.nombre_profesor,
+                        materia: data.datos.materia,
+                        grupo: data.datos.grupo
+                    }});
+                    
+                    console.log('🔗 Query params construidos:', params.toString());
+                    
+                    // Cerrar WebSocket antes de redirigir
+                    ws.close();
+                    
+                    // Construir URL completa
+                    const baseUrl = window.location.origin + window.location.pathname;
+                    const newUrl = baseUrl + '?' + params.toString();
+                    
+                    console.log('🔄 Redirigiendo a:', newUrl);
+                    
+                    // Redirigir con los datos en query params
+                    window.location.href = newUrl;
+                }}
+            }} catch (error) {{
+                console.error('❌ Error procesando mensaje:', error);
+                console.error('Stack:', error.stack);
             }}
         }};
         
         ws.onerror = (error) => {{
-            console.error('❌ Error WebSocket:', error);
+            console.error('❌ Error en WebSocket:', error);
         }};
         
-        ws.onclose = () => {{
+        ws.onclose = (event) => {{
             console.log('🔴 WebSocket cerrado');
+            console.log('   - Code:', event.code);
+            console.log('   - Reason:', event.reason);
+            console.log('   - Was Clean:', event.wasClean);
         }};
         
-        // Verificar si hay login guardado al cargar
-        if (sessionStorage.getItem('login_exitoso') === 'true') {{
-            console.log('✅ Login previo detectado, redirigiendo...');
-            window.parent.postMessage({{
-                type: 'streamlit:setComponentValue',
-                value: {{
-                    login_exitoso: true,
-                    datos: {{
-                        id_clase: sessionStorage.getItem('id_clase'),
-                        id_profesor: sessionStorage.getItem('id_profesor'),
-                        nombre_profesor: sessionStorage.getItem('nombre_profesor'),
-                        materia: sessionStorage.getItem('materia'),
-                        grupo: sessionStorage.getItem('grupo')
-                    }}
-                }}
-            }}, '*');
-        }}
+        // Enviar ping cada 30 segundos para mantener conexión viva
+        setInterval(() => {{
+            if (ws.readyState === WebSocket.OPEN) {{
+                ws.send('ping');
+                console.log('🏓 Ping enviado');
+            }}
+        }}, 30000);
     </script>
     """
     
-    login_data = components.html(html_ws, height=0)
+    components.html(html_ws, height=0)
     
-    # ✅ Si recibimos datos del componente, guardar en session_state
-    if login_data and login_data.get('login_exitoso'):
-        st.session_state.login_exitoso = True
-        st.session_state.id_clase = login_data['datos']['id_clase']
-        st.session_state.id_profesor = login_data['datos']['id_profesor']
-        st.session_state.nombre_profesor = login_data['datos']['nombre_profesor']
-        st.session_state.materia = login_data['datos']['materia']
-        st.session_state.grupo = login_data['datos']['grupo']
-        st.switch_page("pages/estadisticas.py")
-    
+    # Esperar un momento antes de refrescar para permitir que el WebSocket se conecte
     time.sleep(1)
     st.rerun()

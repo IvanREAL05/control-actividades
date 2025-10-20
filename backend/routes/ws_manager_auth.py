@@ -7,6 +7,7 @@ Gestiona las sesiones de login pendientes.
 from typing import Dict
 from fastapi import WebSocket
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,17 @@ class AuthConnectionManager:
             logger.info(f"❌ Sesión removida: {session_id}")
             logger.info(f"📊 Total sesiones pendientes: {len(self.pending_sessions)}")
     
-    async def notify_login_success(self, session_id: str, data: dict):
+    async def notify_login_success(self, session_id: str, data: dict) -> bool:
         """
         Notificar al navegador que el login fue exitoso.
         Envía los datos de la clase para redirección automática.
+        
+        Args:
+            session_id: ID de la sesión QR
+            data: Diccionario con id_clase, id_profesor, nombre_profesor, materia, grupo
+            
+        Returns:
+            bool: True si se envió exitosamente, False si no hay conexión
         """
         if session_id not in self.pending_sessions:
             logger.warning(f"⚠️ Session {session_id} no encontrada o ya expiró")
@@ -44,27 +52,40 @@ class AuthConnectionManager:
         
         websocket = self.pending_sessions[session_id]
         
+        # ✅ IMPORTANTE: Usar "datos" (no "data") para coincidir con el frontend
+        mensaje = {
+            "tipo": "login_exitoso",
+            "datos": data
+        }
+        
         try:
-            await websocket.send_json({
-                "tipo": "login_exitoso",
-                "data": data
-            })
-            logger.info(f"✅ Notificación enviada a sesión {session_id}")
+            logger.info(f"📤 Enviando notificación de login a sesión: {session_id}")
+            logger.info(f"📦 Mensaje completo: {json.dumps(mensaje, indent=2, ensure_ascii=False)}")
+            
+            await websocket.send_json(mensaje)
+            
+            logger.info(f"✅ Notificación enviada exitosamente a {session_id}")
+            logger.info(f"🎯 Datos enviados: Profesor {data.get('id_profesor')} → Clase {data.get('id_clase')}")
+            
+            # ⏳ Esperar un momento antes de cerrar para asegurar entrega
+            import asyncio
+            await asyncio.sleep(0.5)
             
             # Cerrar websocket después de notificar
-            await websocket.close()
+            await websocket.close(code=1000, reason="Login completado")
             self.disconnect(session_id)
             
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error notificando login a {session_id}: {e}")
+            logger.error(f"❌ Error notificando login a {session_id}: {type(e).__name__}: {e}")
             self.disconnect(session_id)
             return False
     
     async def notify_error(self, session_id: str, mensaje: str):
         """Notificar error al navegador"""
         if session_id not in self.pending_sessions:
+            logger.warning(f"⚠️ No se puede notificar error: sesión {session_id} no existe")
             return
         
         websocket = self.pending_sessions[session_id]
