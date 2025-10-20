@@ -424,9 +424,6 @@ async def generar_sesion_qr():
 async def websocket_auth(websocket: WebSocket, session_id: str):
     """
     WebSocket que el navegador mantiene abierto mientras espera login.
-    Cuando la app móvil escanea el QR y confirma, este WS notifica al navegador.
-    
-    URL: ws://localhost:8000/ws/login/auth/{session_id}
     """
     # ✅ PRIMERO aceptar, LUEGO validar
     await websocket.accept()
@@ -456,27 +453,37 @@ async def websocket_auth(websocket: WebSocket, session_id: str):
             try:
                 # Esperar mensajes del cliente (pings)
                 data = await websocket.receive_text()
+                logger.info(f"📥 Mensaje recibido de {session_id}: {data}")
                 
                 # Verificar si la sesión sigue válida
                 if session_id not in active_qr_sessions:
-                    logger.info(f"📤 Sesión {session_id} ya fue usada")
+                    logger.info(f"📤 Sesión {session_id} ya fue usada - cerrando WS")
                     break
                 
                 if active_qr_sessions[session_id].is_expired():
-                    logger.warning(f"⏱️ Sesión {session_id} expiró")
+                    logger.warning(f"⏱️ Sesión {session_id} expiró - cerrando WS")
                     await auth_manager.notify_error(session_id, "Sesión expirada. Genera un nuevo QR.")
                     break
                 
+                # Responder pings
+                if data == "ping":
+                    await websocket.send_text("pong")
+                    logger.info(f"🏓 Pong enviado a {session_id}")
+                
             except WebSocketDisconnect:
                 logger.info(f"🔌 Cliente desconectó sesión: {session_id}")
+                break
+            except Exception as e:
+                logger.error(f"❌ Error recibiendo mensaje en WS {session_id}: {e}")
                 break
                 
     except Exception as e:
         logger.error(f"❌ Error en WebSocket auth {session_id}: {e}")
     finally:
+        # Solo desconectar del manager, no cerrar el WebSocket aquí
+        # El WebSocket se cierra automáticamente cuando la función termina
         auth_manager.disconnect(session_id)
-        logger.info(f"🔴 WebSocket auth cerrado: {session_id}")
-
+        logger.info(f"🔴 WebSocket auth finalizado: {session_id}")
 
 @router.post("/auth/confirmar-sesion")
 async def confirmar_sesion(request: ConfirmarSesionRequest):
