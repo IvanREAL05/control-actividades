@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Query, HTTPException, WebSocket, WebSocketDisconnect
-from typing import Optional
+from typing import Optional, List
 from utils.fecha import obtener_fecha_hora_cdmx
 from config.db import fetch_all, fetch_one
 from datetime import datetime, timedelta
 from routes.ws_manager import manager
 import asyncio
+from pydantic import BaseModel   # ✅ <--- ESTA LÍNEA ES LA CLAVE
 
 router = APIRouter()
 
@@ -427,3 +428,80 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+# Schema de respuesta
+class ClaseInfo(BaseModel):
+    id_clase: int
+    materia: str
+    grupo: str
+    nrc: str = None
+    aula: Optional[str] = None
+
+class ClasesProfesorResponse(BaseModel):
+    success: bool
+    clases: List[ClaseInfo]
+    total: int
+
+@router.get("/profesor/{id_profesor}", response_model=ClasesProfesorResponse)
+async def obtener_clases_profesor(id_profesor: int):
+    """
+    Obtiene todas las clases asignadas a un profesor.
+    Usado por la app móvil para seleccionar clase en el login del dashboard.
+    
+    URL: GET /api/clases/profesor/{id_profesor}
+    """
+    try:
+        # Validar que el profesor existe
+        profesor = await fetch_one(
+            "SELECT id_profesor, nombre FROM profesor WHERE id_profesor = %s",
+            (id_profesor,)
+        )
+        
+        if not profesor:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Profesor con ID {id_profesor} no encontrado"
+            )
+        
+        # Obtener las clases del profesor
+        query = """
+            SELECT 
+                c.id_clase,
+                c.nrc,
+                c.aula,
+                m.nombre as materia,
+                g.nombre as grupo
+            FROM clase c
+            INNER JOIN materia m ON c.id_materia = m.id_materia
+            INNER JOIN grupo g ON c.id_grupo = g.id_grupo
+            WHERE c.id_profesor = %s
+            ORDER BY m.nombre, g.nombre
+        """
+        
+        clases = await fetch_all(query, (id_profesor,))
+        
+        # Transformar resultado
+        clases_info = [
+            ClaseInfo(
+                id_clase=clase['id_clase'],
+                materia=clase['materia'],
+                grupo=clase['grupo'],
+                nrc=clase.get('nrc'),
+                aula=clase.get('aula')
+            )
+            for clase in clases
+        ]
+        
+        return ClasesProfesorResponse(
+            success=True,
+            clases=clases_info,
+            total=len(clases_info)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error obteniendo clases del profesor {id_profesor}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
+        )

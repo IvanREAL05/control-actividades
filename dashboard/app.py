@@ -206,7 +206,6 @@ st.markdown("""
         box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
     }
     
-    /* Mejorar contraste del texto */
     .feature-title {
         color: #2d3748 !important;
         font-size: 1.3rem;
@@ -247,6 +246,15 @@ st.markdown("""
         display: inline-block;
         font-weight: 600;
         margin: 2rem 0;
+    }
+    
+    .success-panel {
+        background: linear-gradient(135deg, #48bb78, #38a169);
+        color: white;
+        padding: 3rem;
+        border-radius: 20px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(72, 187, 120, 0.3);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -293,6 +301,14 @@ def crear_qr_pil_image(session_id: str):
     return np.array(img.convert('RGB'))
 
 # =============================================
+# VERIFICAR SI YA HAY LOGIN ACTIVO
+# =============================================
+
+# ✅ Si ya hay login exitoso, redirigir inmediatamente
+if "login_exitoso" in st.session_state and st.session_state.login_exitoso:
+    st.switch_page("pages/estadisticas.py")
+
+# =============================================
 # INICIALIZACIÓN
 # =============================================
 
@@ -301,6 +317,7 @@ if "session_id" not in st.session_state:
     st.session_state.qr_image = None
     st.session_state.expires_at = None
     st.session_state.login_status = "waiting"
+    st.session_state.login_exitoso = False
 
 if st.session_state.session_id is None:
     with st.spinner("🔄 Generando código de acceso..."):
@@ -348,7 +365,6 @@ st.markdown('<div class="main-container">', unsafe_allow_html=True)
 col1, col2 = st.columns(2, gap="large")
 
 with col1:
-    # PANEL IZQUIERDO - INFORMACIÓN
     st.markdown("""
     <div class="info-panel">
         <h1 class="welcome-title">Bienvenido al Sistema</h1>
@@ -359,7 +375,6 @@ with col1:
     </div>
     """, unsafe_allow_html=True)
     
-    # Características con fondo BLANCO
     features = [
         {"icon": "📊", "title": "Estadísticas en Tiempo Real", "text": "Visualiza datos actualizados de asistencia y rendimiento de tus grupos al instante."},
         {"icon": "✅", "title": "Control Simplificado", "text": "Gestiona asistencias, actividades y evaluaciones de manera eficiente y organizada."},
@@ -379,7 +394,6 @@ with col1:
         """, unsafe_allow_html=True)
 
 with col2:
-    # PANEL DERECHO - QR
     if st.session_state.login_status == "waiting":
         tiempo_restante = int(st.session_state.expires_at - time.time())
         
@@ -397,24 +411,20 @@ with col2:
                 </p>
             """, unsafe_allow_html=True)
             
-            # Status badge
             st.markdown("""
                 <div class="status-badge">
                     ⏳ Esperando autenticación...
                 </div>
             """, unsafe_allow_html=True)
             
-            # QR Code
             st.image(st.session_state.qr_image, width=280)
             
-            # Timer
             st.markdown(f"""
                 <div class="timer-display">
                     ⏱️ {minutos:02d}:{segundos:02d}
                 </div>
             """, unsafe_allow_html=True)
             
-            # Instrucciones
             st.markdown("""
                 <div style="margin-top: 2.5rem; text-align: left;">
                     <h3 style="color: #2d3748; font-size: 1.3rem; font-weight: 600; margin-bottom: 1.5rem; text-align: center;">
@@ -439,7 +449,6 @@ with col2:
             
             st.markdown("</div>", unsafe_allow_html=True)
             
-            # Botón de refrescar
             if st.button("🔄 Generar Nuevo Código QR", use_container_width=True, key="refresh_btn"):
                 st.session_state.session_id = None
                 st.rerun()
@@ -451,7 +460,6 @@ with col2:
             st.rerun()
     
     elif st.session_state.login_status == "expired":
-        # PANEL EXPIRADO - SIN HTML SIN RENDERIZAR
         st.markdown("""
         <div class="qr-panel">
             <h2 style="font-size: 2rem; font-weight: 700; color: #2d3748; margin-bottom: 1rem;">
@@ -462,14 +470,12 @@ with col2:
             </p>
         """, unsafe_allow_html=True)
         
-        # Badge de expirado - RENDERIZADO CORRECTAMENTE
         st.markdown("""
             <div class="expired-badge">
                 ❌ Código Expirado
             </div>
         """, unsafe_allow_html=True)
         
-        # Texto explicativo - RENDERIZADO CORRECTAMENTE
         st.markdown("""
             <p style="color: #4a5568; margin: 2rem 0; line-height: 1.6; font-weight: 500;">
                 Por seguridad, los códigos QR tienen un tiempo limitado de valencia.<br>
@@ -477,7 +483,6 @@ with col2:
             </p>
         """, unsafe_allow_html=True)
         
-        # Botón de refrescar
         if st.button("🔄 Generar Nuevo Código QR", use_container_width=True, key="refresh_expired"):
             st.session_state.session_id = None
             st.rerun()
@@ -492,18 +497,85 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.login_status == "waiting":
     import streamlit.components.v1 as components
     
+    # ✅ CORREGIDO: Guardar datos en sessionStorage y redirigir
     html_ws = f"""
     <script>
         const ws = new WebSocket('ws://localhost:8000/ws/login/auth/{st.session_state.session_id}');
+        
+        ws.onopen = () => {{
+            console.log('✅ WebSocket conectado');
+        }};
+        
         ws.onmessage = (event) => {{
+            console.log('📩 Mensaje recibido:', event.data);
             const data = JSON.parse(event.data);
+            
             if (data.tipo === 'login_exitoso') {{
-                window.location.reload();
+                console.log('✅ Login exitoso detectado');
+                
+                // Guardar datos en sessionStorage para que persistan
+                sessionStorage.setItem('login_exitoso', 'true');
+                sessionStorage.setItem('id_clase', data.datos.id_clase);
+                sessionStorage.setItem('id_profesor', data.datos.id_profesor);
+                sessionStorage.setItem('nombre_profesor', data.datos.nombre_profesor);
+                sessionStorage.setItem('materia', data.datos.materia);
+                sessionStorage.setItem('grupo', data.datos.grupo);
+                
+                // Notificar a Streamlit
+                window.parent.postMessage({{
+                    type: 'streamlit:setComponentValue',
+                    value: {{
+                        login_exitoso: true,
+                        datos: data.datos
+                    }}
+                }}, '*');
+                
+                // Forzar recarga después de guardar datos
+                setTimeout(() => {{
+                    window.location.reload();
+                }}, 500);
             }}
         }};
+        
+        ws.onerror = (error) => {{
+            console.error('❌ Error WebSocket:', error);
+        }};
+        
+        ws.onclose = () => {{
+            console.log('🔴 WebSocket cerrado');
+        }};
+        
+        // Verificar si hay login guardado al cargar
+        if (sessionStorage.getItem('login_exitoso') === 'true') {{
+            console.log('✅ Login previo detectado, redirigiendo...');
+            window.parent.postMessage({{
+                type: 'streamlit:setComponentValue',
+                value: {{
+                    login_exitoso: true,
+                    datos: {{
+                        id_clase: sessionStorage.getItem('id_clase'),
+                        id_profesor: sessionStorage.getItem('id_profesor'),
+                        nombre_profesor: sessionStorage.getItem('nombre_profesor'),
+                        materia: sessionStorage.getItem('materia'),
+                        grupo: sessionStorage.getItem('grupo')
+                    }}
+                }}
+            }}, '*');
+        }}
     </script>
     """
-    components.html(html_ws, height=0)
+    
+    login_data = components.html(html_ws, height=0)
+    
+    # ✅ Si recibimos datos del componente, guardar en session_state
+    if login_data and login_data.get('login_exitoso'):
+        st.session_state.login_exitoso = True
+        st.session_state.id_clase = login_data['datos']['id_clase']
+        st.session_state.id_profesor = login_data['datos']['id_profesor']
+        st.session_state.nombre_profesor = login_data['datos']['nombre_profesor']
+        st.session_state.materia = login_data['datos']['materia']
+        st.session_state.grupo = login_data['datos']['grupo']
+        st.switch_page("pages/estadisticas.py")
     
     time.sleep(1)
     st.rerun()
