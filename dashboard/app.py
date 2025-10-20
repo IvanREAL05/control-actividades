@@ -18,27 +18,31 @@ st.set_page_config(
 def verificar_login_desde_params():
     """
     Lee los datos de login desde query parameters después del redirect del WebSocket.
-    Los query params son más confiables que sessionStorage con Streamlit.
     """
     query_params = st.query_params
     
     if query_params.get("login_exitoso") == "true":
         print("✅ Login detectado en query params")
         
-        # Guardar en session_state
-        st.session_state.login_exitoso = True
-        st.session_state.id_clase = int(query_params.get("id_clase", 0))
-        st.session_state.id_profesor = int(query_params.get("id_profesor", 0))
-        st.session_state.nombre_profesor = query_params.get("nombre_profesor", "")
-        st.session_state.materia = query_params.get("materia", "")
-        st.session_state.grupo = query_params.get("grupo", "")
-        
-        print(f"📊 Datos guardados: Profesor {st.session_state.id_profesor} → Clase {st.session_state.id_clase}")
-        
-        # ⚠️ IMPORTANTE: Limpiar query params antes de redirigir
-        st.query_params.clear()
-        
-        return True
+        try:
+            # Guardar en session_state
+            st.session_state.login_exitoso = True
+            st.session_state.id_clase = int(query_params.get("id_clase", 0))
+            st.session_state.id_profesor = int(query_params.get("id_profesor", 0))
+            st.session_state.nombre_profesor = query_params.get("nombre_profesor", "")
+            st.session_state.materia = query_params.get("materia", "")
+            st.session_state.grupo = query_params.get("grupo", "")
+            
+            print(f"📊 Datos guardados: Profesor {st.session_state.id_profesor} → Clase {st.session_state.id_clase}")
+            
+            # Limpiar query params antes de redirigir
+            st.query_params.clear()
+            
+            return True
+        except Exception as e:
+            print(f"❌ Error procesando query params: {e}")
+            st.query_params.clear()
+            return False
     
     return False
 
@@ -527,18 +531,25 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =============================================
 # WEBSOCKET Y AUTO-REFRESH
 # =============================================
+# =============================================
+# WEBSOCKET Y AUTO-REFRESH
+# =============================================
 if st.session_state.login_status == "waiting":
     import streamlit.components.v1 as components
     
-    # ✅ VERSIÓN CORREGIDA CON LOGS Y REDIRECT POR QUERY PARAMS
+    # ✅ VERSIÓN MEJORADA - Sin conflicto de rerun
     html_ws = f"""
     <script>
         console.log('🚀 Iniciando WebSocket para sesión: {st.session_state.session_id}');
+        
+        let redirectInProgress = false; // Bandera para evitar múltiples redirecciones
         
         const ws = new WebSocket('ws://localhost:8000/ws/login/auth/{st.session_state.session_id}');
         
         ws.onopen = () => {{
             console.log('✅ WebSocket conectado exitosamente');
+            // Notificar a Streamlit que el WebSocket está conectado
+            window.parent.postMessage({{type: 'WS_CONNECTED'}}, '*');
         }};
         
         ws.onmessage = (event) => {{
@@ -547,16 +558,15 @@ if st.session_state.login_status == "waiting":
             try {{
                 const data = JSON.parse(event.data);
                 console.log('📦 PARSED DATA:', JSON.stringify(data, null, 2));
-                console.log('🔑 TIPO:', data.tipo);
-                console.log('📊 DATOS:', data.datos);
                 
-                if (data.tipo === 'login_exitoso') {{
+                if (data.tipo === 'login_exitoso' && !redirectInProgress) {{
                     console.log('🎉 Login exitoso detectado!');
-                    console.log('📊 Datos completos:', data.datos);
+                    redirectInProgress = true;
                     
                     // Verificar que tengamos todos los campos necesarios
                     if (!data.datos || !data.datos.id_clase) {{
                         console.error('❌ Faltan datos en la respuesta:', data.datos);
+                        redirectInProgress = false;
                         return;
                     }}
                     
@@ -565,9 +575,9 @@ if st.session_state.login_status == "waiting":
                         login_exitoso: 'true',
                         id_clase: data.datos.id_clase,
                         id_profesor: data.datos.id_profesor,
-                        nombre_profesor: data.datos.nombre_profesor,
-                        materia: data.datos.materia,
-                        grupo: data.datos.grupo
+                        nombre_profesor: data.datos.nombre_profesor || '',
+                        materia: data.datos.materia || '',
+                        grupo: data.datos.grupo || ''
                     }});
                     
                     console.log('🔗 Query params construidos:', params.toString());
@@ -581,12 +591,13 @@ if st.session_state.login_status == "waiting":
                     
                     console.log('🔄 Redirigiendo a:', newUrl);
                     
-                    // Redirigir con los datos en query params
-                    window.location.href = newUrl;
+                    // Pequeño delay para asegurar que el WebSocket se cierra
+                    setTimeout(() => {{
+                        window.location.href = newUrl;
+                    }}, 100);
                 }}
             }} catch (error) {{
                 console.error('❌ Error procesando mensaje:', error);
-                console.error('Stack:', error.stack);
             }}
         }};
         
@@ -596,9 +607,6 @@ if st.session_state.login_status == "waiting":
         
         ws.onclose = (event) => {{
             console.log('🔴 WebSocket cerrado');
-            console.log('   - Code:', event.code);
-            console.log('   - Reason:', event.reason);
-            console.log('   - Was Clean:', event.wasClean);
         }};
         
         // Enviar ping cada 30 segundos para mantener conexión viva
@@ -608,11 +616,27 @@ if st.session_state.login_status == "waiting":
                 console.log('🏓 Ping enviado');
             }}
         }}, 30000);
+        
+        // Escuchar mensajes desde Streamlit
+        window.addEventListener('message', (event) => {{
+            if (event.data.type === 'STOP_WS') {{
+                console.log('🛑 Cerrando WebSocket por solicitud de Streamlit');
+                if (ws.readyState === WebSocket.OPEN) {{
+                    ws.close();
+                }}
+            }}
+        }});
     </script>
     """
     
     components.html(html_ws, height=0)
     
-    # Esperar un momento antes de refrescar para permitir que el WebSocket se conecte
-    time.sleep(1)
-    st.rerun()
+    # Solo hacer rerun si no hay una redirección en progreso
+    tiempo_restante = int(st.session_state.expires_at - time.time())
+    if tiempo_restante > 0 and not st.session_state.get("redirect_in_progress", False):
+        # Esperar un poco más para dar tiempo al WebSocket
+        time.sleep(2)
+        st.rerun()
+    elif tiempo_restante <= 0:
+        st.session_state.login_status = "expired"
+        st.rerun()
