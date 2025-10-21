@@ -9,6 +9,14 @@ import numpy as np
 import os
 import json
 
+# ============================================
+# CONFIGURACIÓN DE IPs
+# ============================================
+BACKEND_IP = "10.31.225.255"  # PC donde corre FastAPI
+BACKEND_PORT = "8000"
+FRONTEND_IP = "10.31.229.28"  # PC donde corre Streamlit
+FRONTEND_PORT = "8501"
+
 st.set_page_config(
     page_title="Sistema de Control de Asistencias",
     page_icon="🎓",
@@ -19,26 +27,25 @@ st.set_page_config(
 # CSS para hacer todo más grande y visible
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stApp {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    .block-container {
-        padding: 0 !important;
-        max-width: 100% !important;
-    }
-    section.main > div {
-        padding: 0 !important;
-    }
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.stApp {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+.block-container {
+    padding: 0 !important;
+    max-width: 100% !important;
+}
+section.main > div {
+    padding: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # Verificar si venimos de un login exitoso
 query_params = st.query_params
-
 if query_params.get("login") == "success":
     st.session_state.login_exitoso = True
     st.session_state.id_clase = int(query_params.get("id_clase"))
@@ -56,7 +63,10 @@ if st.session_state.get("login_exitoso"):
     @st.cache_data(ttl=300)
     def obtener_datos_iniciales(id_clase):
         try:
-            response = requests.get(f"http://localhost:8000/api/tabla/{id_clase}/datos", timeout=5)
+            response = requests.get(
+                f"http://{BACKEND_IP}:{BACKEND_PORT}/api/tabla/{id_clase}/datos",
+                timeout=5
+            )
             if response.status_code == 200:
                 return response.json()
         except:
@@ -77,7 +87,6 @@ if st.session_state.get("login_exitoso"):
     clase_info = datos.get('clase', {})
     actividades = datos.get('actividades', [])
     datos_json = json.dumps(datos)
-    
     actividades_headers = "".join([f'<th class="act-header">{act["nombre"]}</th>' for act in actividades])
     
     html_tabla = f"""
@@ -87,8 +96,13 @@ if st.session_state.get("login_exitoso"):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }}
-            html, body {{ 
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: 'Segoe UI', sans-serif;
+            }}
+            html, body {{
                 height: 100vh;
                 width: 100vw;
                 overflow: hidden;
@@ -241,14 +255,37 @@ if st.session_state.get("login_exitoso"):
                 text-transform: uppercase;
                 white-space: nowrap;
             }}
-            .badge-presente {{ background: #d1fae5; color: #065f46; }}
-            .badge-retardo {{ background: #fef3c7; color: #92400e; }}
-            .badge-ausente {{ background: #fee2e2; color: #991b1b; }}
-            .badge-justificante {{ background: #dbeafe; color: #1e40af; }}
-            .badge-pendiente {{ background: #f3f4f6; color: #6b7280; }}
-            .badge-entregado {{ background: #d1fae5; color: #065f46; }}
-            .row-updating {{ animation: highlightRow 0.8s ease; }}
-            @keyframes highlightRow {{ 0%, 100% {{ background: white; }} 50% {{ background: #fef3c7; }} }}
+            .badge-presente {{
+                background: #d1fae5;
+                color: #065f46;
+            }}
+            .badge-retardo {{
+                background: #fef3c7;
+                color: #92400e;
+            }}
+            .badge-ausente {{
+                background: #fee2e2;
+                color: #991b1b;
+            }}
+            .badge-justificante {{
+                background: #dbeafe;
+                color: #1e40af;
+            }}
+            .badge-pendiente {{
+                background: #f3f4f6;
+                color: #6b7280;
+            }}
+            .badge-entregado {{
+                background: #d1fae5;
+                color: #065f46;
+            }}
+            .row-updating {{
+                animation: highlightRow 0.8s ease;
+            }}
+            @keyframes highlightRow {{
+                0%, 100% {{ background: white; }}
+                50% {{ background: #fef3c7; }}
+            }}
             .ws-status {{
                 position: fixed;
                 bottom: 20px;
@@ -262,9 +299,9 @@ if st.session_state.get("login_exitoso"):
                 box-shadow: 0 4px 20px rgba(16, 185, 129, 0.5);
                 z-index: 10000;
             }}
-            .ws-status.disconnected {{ background: #ef4444; }}
-            
-            /* Personalizar scrollbar */
+            .ws-status.disconnected {{
+                background: #ef4444;
+            }}
             .table-wrapper::-webkit-scrollbar {{
                 width: 10px;
                 height: 10px;
@@ -285,7 +322,6 @@ if st.session_state.get("login_exitoso"):
     <body>
         <div class="main-container">
             <div class="live-indicator">🔴 EN VIVO</div>
-            
             <div class="header">
                 <div class="header-content">
                     <div class="header-title">
@@ -294,7 +330,6 @@ if st.session_state.get("login_exitoso"):
                     </div>
                 </div>
             </div>
-            
             <div class="info-bar">
                 <div class="info-item"><div class="info-label">Materia</div><div class="info-value" id="nombre-materia">-</div></div>
                 <div class="info-item"><div class="info-label">Grupo</div><div class="info-value" id="nombre-grupo">-</div></div>
@@ -302,7 +337,6 @@ if st.session_state.get("login_exitoso"):
                 <div class="info-item"><div class="info-label">Presentes</div><div class="info-value" style="color: #10b981;" id="total-presentes">0</div></div>
                 <div class="info-item"><div class="info-label">Actividades Hoy</div><div class="info-value" style="color: #3b82f6;" id="total-actividades">0</div></div>
             </div>
-            
             <div class="content-area">
                 <div class="table-container">
                     <div class="table-wrapper">
@@ -313,10 +347,8 @@ if st.session_state.get("login_exitoso"):
                     </div>
                 </div>
             </div>
-            
             <div class="ws-status" id="ws-status">Conectando...</div>
         </div>
-        
         <script>
             const datosIniciales = {datos_json};
             const ID_CLASE = {id_clase};
@@ -348,7 +380,6 @@ if st.session_state.get("login_exitoso"):
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-id', id);
                 const estado = estadoMap[estudiante.asistencia] || estadoMap['pendiente'];
-                
                 let actividadesCells = '';
                 actividades.forEach(act => {{
                     const actIdStr = String(act.id);
@@ -358,36 +389,37 @@ if st.session_state.get("login_exitoso"):
                     const texto = estadoAct === 'entregado' ? 'Entregado' : 'Pendiente';
                     actividadesCells += `<td class="act-cell"><span class="badge ${{badgeClass}}">${{emoji}} ${{texto}}</span></td>`;
                 }});
-                
-                tr.innerHTML = `
-                    <td>${{estudiante.grupo}}</td>
+                tr.innerHTML = `<td>${{estudiante.grupo}}</td>
                     <td><strong>${{estudiante.nombre_completo}}</strong></td>
                     <td>${{estudiante.matricula}}</td>
                     <td><span class="badge ${{estado.badge}}">${{estado.emoji}} ${{estado.texto}}</span></td>
                     <td>${{estudiante.hora_entrada || '-'}}</td>
-                    ${{actividadesCells}}
-                `;
+                    ${{actividadesCells}}`;
                 return tr;
             }}
             
             function actualizarEstadisticas() {{
                 let total = 0, presentes = 0;
-                estudiantesMap.forEach(est => {{ total++; if (est.asistencia === 'presente') presentes++; }});
+                estudiantesMap.forEach(est => {{
+                    total++;
+                    if (est.asistencia === 'presente') presentes++;
+                }});
                 document.getElementById('total-estudiantes').textContent = total;
                 document.getElementById('total-presentes').textContent = presentes;
             }}
             
             renderizarTabla();
             
-            let ws = new WebSocket('ws://localhost:8000/ws/tabla/{id_clase}');
+            let ws = new WebSocket('ws://{BACKEND_IP}:{BACKEND_PORT}/ws/tabla/{id_clase}');
             console.log("📡 Intentando conectar WebSocket...");
             const wsStatus = document.getElementById('ws-status');
             
-            ws.onopen = () => {{ 
+            ws.onopen = () => {{
                 console.log("✅ WebSocket conectado correctamente al servidor");
                 wsStatus.textContent = '🟢 Conectado';
                 wsStatus.classList.remove('disconnected');
             }};
+            
             ws.onmessage = (event) => {{
                 console.log("📩 Mensaje recibido del servidor:", event.data);
                 try {{
@@ -412,14 +444,17 @@ if st.session_state.get("login_exitoso"):
                             }}
                         }}
                     }}
-                }} catch(e) {{ console.error(e); }}
+                }} catch(e) {{
+                    console.error(e);
+                }}
             }};
+            
             ws.onerror = (e) => {{
-            console.error("❌ Error en WebSocket:", e);
-            wsStatus.textContent = '🔴 Error';
-            wsStatus.classList.add('disconnected');
+                console.error("❌ Error en WebSocket:", e);
+                wsStatus.textContent = '🔴 Error';
+                wsStatus.classList.add('disconnected');
             }};
-
+            
             ws.onclose = (e) => {{
                 console.warn("🔌 WebSocket cerrado:", e);
                 wsStatus.textContent = '🔴 Desconectado';
@@ -447,7 +482,10 @@ if st.session_state.get("login_exitoso"):
 def generar_sesion_qr():
     """Generar session_id"""
     try:
-        response = requests.post("http://localhost:8000/api/login/auth/generar-sesion-qr", timeout=5)
+        response = requests.post(
+            f"http://{BACKEND_IP}:{BACKEND_PORT}/api/login/auth/generar-sesion-qr",
+            timeout=5
+        )
         if response.status_code == 200:
             data = response.json()
             return data["session_id"], data["expires_in"]
@@ -460,7 +498,6 @@ if "session_id" not in st.session_state or st.session_state.session_id is None:
     if session_id:
         st.session_state.session_id = session_id
         st.session_state.expires_at = time.time() + expires_in
-        
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(session_id)
         qr.make(fit=True)
@@ -494,8 +531,17 @@ html_content = f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login QR</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }}
-        html, body {{ height: 100vh; width: 100vw; overflow: hidden; }}
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', sans-serif;
+        }}
+        html, body {{
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }}
         body {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
@@ -529,27 +575,27 @@ html_content = f"""
             font-weight: 600;
             margin-bottom: 3px;
         }}
-        h1 {{ 
-            color: #2d3748; 
-            font-size: 1.8rem; 
+        h1 {{
+            color: #2d3748;
+            font-size: 1.8rem;
             margin-bottom: 8px;
             font-weight: 700;
         }}
-        .subtitle {{ 
-            color: #718096; 
-            margin-bottom: 20px; 
+        .subtitle {{
+            color: #718096;
+            margin-bottom: 20px;
             font-size: 1rem;
         }}
-        .qr-container {{ 
-            background: #f7fafc; 
-            padding: 25px; 
-            border-radius: 15px; 
-            margin: 20px 0; 
+        .qr-container {{
+            background: #f7fafc;
+            padding: 25px;
+            border-radius: 15px;
+            margin: 20px 0;
         }}
-        .qr-image {{ 
-            width: 220px; 
-            height: 220px; 
-            margin: 0 auto; 
+        .qr-image {{
+            width: 220px;
+            height: 220px;
+            margin: 0 auto;
         }}
         .timer {{
             background: linear-gradient(135deg, #667eea, #764ba2);
@@ -571,16 +617,20 @@ html_content = f"""
             display: inline-block;
             font-size: 0.95rem;
         }}
-        .status.connecting {{ background: #ed8936; }}
-        .status.error {{ background: #f56565; }}
-        .instructions {{ 
-            text-align: left; 
-            margin-top: 20px; 
-            color: #4a5568; 
+        .status.connecting {{
+            background: #ed8936;
         }}
-        .instructions h3 {{ 
-            margin-bottom: 12px; 
-            color: #2d3748; 
+        .status.error {{
+            background: #f56565;
+        }}
+        .instructions {{
+            text-align: left;
+            margin-top: 20px;
+            color: #4a5568;
+        }}
+        .instructions h3 {{
+            margin-bottom: 12px;
+            color: #2d3748;
             font-size: 1.1rem;
             text-align: center;
         }}
@@ -606,13 +656,23 @@ html_content = f"""
             flex-shrink: 0;
             font-size: 13px;
         }}
-        .step div {{ font-size: 0.9rem; }}
-        
-        /* Scrollbar personalizada */
-        .container::-webkit-scrollbar {{ width: 8px; }}
-        .container::-webkit-scrollbar-track {{ background: #f1f1f1; border-radius: 10px; }}
-        .container::-webkit-scrollbar-thumb {{ background: #667eea; border-radius: 10px; }}
-        .container::-webkit-scrollbar-thumb:hover {{ background: #764ba2; }}
+        .step div {{
+            font-size: 0.9rem;
+        }}
+        .container::-webkit-scrollbar {{
+            width: 8px;
+        }}
+        .container::-webkit-scrollbar-track {{
+            background: #f1f1f1;
+            border-radius: 10px;
+        }}
+        .container::-webkit-scrollbar-thumb {{
+            background: #667eea;
+            border-radius: 10px;
+        }}
+        .container::-webkit-scrollbar-thumb:hover {{
+            background: #764ba2;
+        }}
     </style>
 </head>
 <body>
@@ -621,18 +681,13 @@ html_content = f"""
             <h2>🎓 Sistema de Control de Asistencias en Tiempo Real</h2>
             <p>Preparatoria Gral. Lázaro Cárdenas del Río</p>
         </div>
-        
         <h1>🔐 Acceso Seguro</h1>
         <p class="subtitle">Escanea el código QR con tu app móvil</p>
-        
         <div class="status" id="status">⏳ Esperando escaneo...</div>
-        
         <div class="qr-container">
             <img src="data:image/png;base64,{qr_base64}" class="qr-image" alt="QR Code">
         </div>
-        
         <div class="timer" id="timer">{minutos:02d}:{segundos:02d}</div>
-        
         <div class="instructions">
             <h3>📋 Instrucciones</h3>
             <div class="step"><div class="step-number">1</div><div>Abre la app móvil de docente</div></div>
@@ -641,9 +696,8 @@ html_content = f"""
             <div class="step"><div class="step-number">4</div><div>Selecciona tu clase y confirma</div></div>
         </div>
     </div>
-
     <script>
-        const ws = new WebSocket('ws://localhost:8000/ws/login/auth/{session_id}');
+        const ws = new WebSocket('ws://{BACKEND_IP}:{BACKEND_PORT}/ws/login/auth/{session_id}');
         const statusEl = document.getElementById('status');
         const timerEl = document.getElementById('timer');
         let tiempoRestante = {tiempo_restante};
@@ -662,7 +716,11 @@ html_content = f"""
             }}
         }}, 1000);
         
-        ws.onopen = () => {{ statusEl.textContent = '⏳ Esperando escaneo...'; statusEl.className = 'status'; }};
+        ws.onopen = () => {{
+            statusEl.textContent = '⏳ Esperando escaneo...';
+            statusEl.className = 'status';
+        }};
+        
         ws.onmessage = (event) => {{
             if (event.data === 'pong') return;
             try {{
@@ -679,12 +737,21 @@ html_content = f"""
                     params.set('nombre_profesor', datos.nombre_profesor);
                     params.set('materia', datos.materia);
                     params.set('grupo', datos.grupo);
-                    window.location.href = 'http://localhost:8501/?' + params.toString();
+                    window.location.href = 'http://{FRONTEND_IP}:{FRONTEND_PORT}/?' + params.toString();
                 }}
-            }} catch (error) {{ console.error(error); }}
+            }} catch (error) {{
+                console.error(error);
+            }}
         }};
-        ws.onerror = () => {{ statusEl.textContent = '⚠️ Error de conexión'; statusEl.className = 'status error'; }};
-        setInterval(() => {{ if (ws.readyState === WebSocket.OPEN) ws.send('ping'); }}, 20000);
+        
+        ws.onerror = () => {{
+            statusEl.textContent = '⚠️ Error de conexión';
+            statusEl.className = 'status error';
+        }};
+        
+        setInterval(() => {{
+            if (ws.readyState === WebSocket.OPEN) ws.send('ping');
+        }}, 20000);
     </script>
 </body>
 </html>
