@@ -1,5 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
-from typing import List, Dict
+from typing import Dict
 import asyncio
 import logging
 import json
@@ -13,90 +13,60 @@ logger = logging.getLogger(__name__)
 @router.websocket("/ws/tabla/{id_clase}")
 async def websocket_tabla(websocket: WebSocket, id_clase: int):
     """
-    WebSocket para tabla dinámica de una clase específica.
-    Mantiene la conexión abierta para recibir actualizaciones en tiempo real.
+    WebSocket para tabla dinámica - Versión optimizada
     """
-    await websocket.accept()
-    logger.info(f"✅ WebSocket aceptado para clase {id_clase}")
+    # ✅ El manager ya llama a accept(), no lo llamamos aquí
     await tabla_manager.connect(websocket, id_clase)
-    logger.info(f"📋 Dashboard tabla conectado para clase {id_clase}. Total clientes: {len(tabla_manager.active_connections.get(id_clase, []))}")
+    logger.info(f"✅ Cliente conectado a clase {id_clase}. Total: {len(tabla_manager.active_connections.get(id_clase, []))}")
     
     try:
         # Enviar datos iniciales
         datos_iniciales = await obtener_datos_tabla_completos(id_clase)
-        await websocket.send_json(datos_iniciales)
-        logger.info(f"📤 Enviados datos iniciales a clase {id_clase}")
+        await websocket.send_text(json.dumps(datos_iniciales, ensure_ascii=False))
+        logger.info(f"📤 Datos iniciales enviados a clase {id_clase}")
         
-        # ✅ MANTENER CONEXIÓN ABIERTA - Escuchar mensajes del cliente
+        # ✅ LOOP SIMPLE SIN TIMEOUT - Mantiene conexión abierta
         while True:
-            try:
-                # Esperar mensaje del cliente con timeout
-                data = await asyncio.wait_for(
-                    websocket.receive_text(), 
-                    timeout=60.0  # Timeout de 60 segundos
-                )
-                
-                try:
-                    mensaje = json.loads(data)
-                    
-                    # Responder a pings para mantener conexión viva
-                    if mensaje.get("tipo") == "ping":
-                        logger.debug(f"💓 Ping recibido de clase {id_clase}")
-                        await websocket.send_json({"tipo": "pong"})
-                    else:
-                        logger.debug(f"📨 Mensaje recibido de clase {id_clase}: {mensaje.get('tipo', 'desconocido')}")
-                        
-                except json.JSONDecodeError:
-                    logger.warning(f"⚠️ Mensaje no JSON recibido de clase {id_clase}")
-                    
-            except asyncio.TimeoutError:
-                # Si no hay mensajes por 60 segundos, enviar ping al cliente
-                try:
-                    await websocket.send_json({"tipo": "ping"})
-                    logger.debug(f"💓 Ping enviado a clase {id_clase}")
-                except Exception as e:
-                    logger.error(f"❌ Error enviando ping a clase {id_clase}: {e}")
-                    break
-                    
-            except Exception as e:
-                logger.error(f"❌ Error recibiendo mensaje de clase {id_clase}: {e}")
-                break
+            # Recibir cualquier mensaje del cliente
+            data = await websocket.receive_text()
+            
+            # Responder a pings (keep-alive)
+            if data == "ping":
+                await websocket.send_text("pong")
+                logger.debug(f"🏓 Ping/Pong con clase {id_clase}")
                 
     except WebSocketDisconnect:
-        logger.info(f"📋 Cliente desconectado voluntariamente de clase {id_clase}")
+        logger.info(f"🔌 Cliente desconectado de clase {id_clase}")
     except Exception as e:
-        logger.error(f"❌ Error en WebSocket tabla clase {id_clase}: {e}")
+        logger.error(f"❌ Error WebSocket clase {id_clase}: {e}")
     finally:
         tabla_manager.disconnect(websocket, id_clase)
-        logger.info(f"🔴 WebSocket cerrado para clase {id_clase}. Clientes restantes: {len(tabla_manager.active_connections.get(id_clase, []))}")
+        logger.info(f"🔴 Conexión cerrada para clase {id_clase}. Restantes: {len(tabla_manager.active_connections.get(id_clase, []))}")
 
 
 async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
     """
-    Obtiene TODA la información de la clase:
-    - Estudiantes con asistencia
-    - Actividades del día
-    - Estado de cada estudiante en cada actividad
+    Obtiene toda la información de la clase con estudiantes y actividades
     """
     hoy = date.today().strftime('%Y-%m-%d')
     
-    # 1️⃣ Obtener actividades de HOY para esta clase
+    # 1. Actividades del día
     query_actividades = """
         SELECT 
             id_actividad,
             titulo,
             tipo_actividad,
             fecha_entrega,
-            valor_maximo,
-            fecha_creacion
+            valor_maximo
         FROM actividad
         WHERE id_clase = %s
             AND DATE(fecha_creacion) = CURDATE()
         ORDER BY fecha_creacion DESC
     """
     actividades = await fetch_all(query_actividades, (id_clase,))
+    logger.info(f"📚 {len(actividades)} actividades encontradas para clase {id_clase}")
     
-    # 2️⃣ Obtener info de la clase
+    # 2. Info de la clase
     query_clase = """
         SELECT 
             c.id_clase,
@@ -109,7 +79,7 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
     """
     info_clase = await fetch_all(query_clase, (id_clase,))
     
-    # 3️⃣ Obtener estudiantes con asistencia
+    # 3. Estudiantes con asistencia
     query_estudiantes = """
         SELECT 
             e.id_estudiante,
@@ -118,8 +88,8 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
             CONCAT(e.nombre, ' ', e.apellido) as nombre_completo,
             e.matricula,
             g.nombre as grupo,
-            COALESCE(a.estado, 'pendiente') as asistencia,
-            COALESCE(a.hora_entrada, '') as hora_entrada
+            COALESCE(a.estado, 'ausente') as asistencia,
+            COALESCE(TIME_FORMAT(a.hora_entrada, '%%H:%%i:%%s'), '') as hora_entrada
         FROM estudiante e
         JOIN grupo g ON e.id_grupo = g.id_grupo
         JOIN clase c ON c.id_grupo = g.id_grupo
@@ -130,15 +100,16 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
         ORDER BY e.apellido, e.nombre
     """
     estudiantes = await fetch_all(query_estudiantes, (hoy, id_clase))
+    logger.info(f"👥 {len(estudiantes)} estudiantes encontrados para clase {id_clase}")
     
-    # 4️⃣ Obtener estado de actividades para cada estudiante
-    estudiantes_con_actividades = []
+    # 4. Agregar estado de actividades a cada estudiante
+    estudiantes_completos = []
     
     for estudiante in estudiantes:
         est_data = dict(estudiante)
         est_data['actividades'] = {}
         
-        # Para cada actividad, obtener el estado
+        # Obtener estado de cada actividad para este estudiante
         for actividad in actividades:
             query_estado = """
                 SELECT estado
@@ -153,9 +124,9 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
             estado = resultado[0]['estado'] if resultado else 'pendiente'
             est_data['actividades'][str(actividad['id_actividad'])] = estado
         
-        estudiantes_con_actividades.append(est_data)
+        estudiantes_completos.append(est_data)
     
-    # 5️⃣ Estructurar respuesta
+    # 5. Estructurar respuesta
     return {
         "tipo": "datos_iniciales",
         "clase": {
@@ -173,24 +144,101 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
             }
             for act in actividades
         ],
-        "estudiantes": estudiantes_con_actividades
+        "estudiantes": estudiantes_completos
     }
 
 
 @router.get("/{id_clase}/datos")
 async def obtener_datos_api(id_clase: int):
     """
-    Endpoint REST para cargar datos iniciales.
+    Endpoint REST para cargar datos iniciales
     """
     try:
         datos = await obtener_datos_tabla_completos(id_clase)
-        logger.info(f"✅ API devolvió datos completos para clase {id_clase}")
-        
-        return {
-            "success": True,
-            **datos
-        }
+        logger.info(f"✅ API devolvió datos para clase {id_clase}")
+        return datos
         
     except Exception as e:
         logger.error(f"❌ Error obteniendo datos: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ============================================
+# 📡 FUNCIONES PARA NOTIFICAR CAMBIOS
+# ============================================
+
+async def notificar_asistencia(id_clase: int, id_estudiante: int, estado: str, hora: str):
+    """
+    Notifica cambio de asistencia a todos los dashboards conectados
+    """
+    mensaje = {
+        "tipo": "asistencia",
+        "data": {
+            "id_estudiante": id_estudiante,
+            "estado": estado,
+            "hora": hora
+        }
+    }
+    await tabla_manager.broadcast(json.dumps(mensaje, ensure_ascii=False), id_clase)
+    logger.info(f"📢 Asistencia notificada: clase {id_clase}, estudiante {id_estudiante} → {estado}")
+
+
+async def notificar_actividad(id_clase: int, matricula: str, id_actividad: int, estado: str = "entregado"):
+    """
+    Notifica entrega de actividad a todos los dashboards conectados
+    """
+    mensaje = {
+        "tipo": "actividad",
+        "data": {
+            "matricula": matricula,
+            "id_actividad": id_actividad,
+            "estado": estado
+        }
+    }
+    await tabla_manager.broadcast(json.dumps(mensaje, ensure_ascii=False), id_clase)
+    logger.info(f"📢 Actividad notificada: clase {id_clase}, matrícula {matricula} → actividad {id_actividad}")
+
+
+# ============================================
+# 🧪 ENDPOINTS DE PRUEBA
+# ============================================
+
+@router.get("/test/notificar/{id_clase}")
+async def test_notificacion(id_clase: int):
+    """
+    Prueba: http://localhost:8000/api/tabla/test/notificar/34
+    """
+    await notificar_asistencia(
+        id_clase=id_clase,
+        id_estudiante=5,
+        estado="presente",
+        hora="20:55:46"
+    )
+    
+    conexiones = len(tabla_manager.active_connections.get(id_clase, []))
+    logger.info(f"🧪 Test ejecutado para clase {id_clase}. Conexiones activas: {conexiones}")
+    
+    return {
+        "success": True,
+        "mensaje": f"Notificación enviada a clase {id_clase}",
+        "conexiones_activas": conexiones,
+        "tipo_notificacion": "asistencia"
+    }
+
+
+@router.get("/test/actividad/{id_clase}")
+async def test_actividad(id_clase: int):
+    """
+    Prueba: http://localhost:8000/api/tabla/test/actividad/34
+    """
+    await notificar_actividad(
+        id_clase=id_clase,
+        matricula="202400184",
+        id_actividad=1,
+        estado="entregado"
+    )
+    
+    return {
+        "success": True,
+        "mensaje": f"Notificación de actividad enviada a clase {id_clase}"
+    }

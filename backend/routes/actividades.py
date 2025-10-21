@@ -281,16 +281,12 @@ async def registrar_entrega(request: EntregaQRRequest):
         )
 
         # --- 📡 Datos que se enviarán al dashboard ---
+        # ✅ DESPUÉS (formato correcto):
         evento_data = {
             "tipo": "actividad",
             "data": {
-                "id_actividad": request.id_actividad, 
-                "nombre": nombre_completo,
                 "matricula": matricula,
-                "grupo": grupo_estudiante["nombre"],
-                "actividad": actividad["tipo_actividad"],
-                "estado": "entregado",
-                "hora": fecha_entrega_real.strftime("%H:%M:%S")
+                "id_actividad": request.id_actividad
             }
         }
         # También añade logging para verificar
@@ -299,7 +295,6 @@ async def registrar_entrega(request: EntregaQRRequest):
         if entrega:
             if entrega["estado"] == "entregado":
                 # 🔸 Ya entregó antes → opcionalmente notificar igual
-                await manager.broadcast(json.dumps(evento_data))
                 await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
                 return {"success": True, "mensaje": f"{nombre_completo} ya entregó esta {actividad['tipo_actividad']} anteriormente."}
 

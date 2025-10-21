@@ -215,22 +215,19 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                 await connection.commit()
 
                 # 🔔 Difusión WebSocket - ✅ CON INFORMACIÓN COMPLETA
+                # ✅ DESPUÉS - Cambia a este formato:
                 mensaje_ws = json.dumps({
-                    "evento": "asistencia_actualizada",
-                    "id_estudiante": id_estudiante,
-                    "nombre": nombre,
-                    "apellido": apellido,
-                    "id_clase": id_clase_datos,
-                    "estado": request.estado,
-                    "hora": hora_actual,
-                    "fecha": hoy,
-                    "nombre_grupo": nombre_grupo,
-                    "nombre_materia": nombre_materia
+                    "tipo": "asistencia",
+                    "data": {
+                        "id_estudiante": id_estudiante,
+                        "estado": request.estado,
+                        "hora": hora_actual
+                    }
                 })
                 
                 logger.info(f"📡 Enviando WebSocket: {mensaje_ws[:150]}...")
                 logger.info(f"👥 Clientes conectados: {len(manager.active_connections)}")
-                await manager.broadcast(mensaje_ws)
+                
                 await tabla_manager.broadcast(mensaje_ws, id_clase=request.id_clase)
 
                 response_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -251,22 +248,18 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
             await connection.commit()
 
             # 🔔 Difusión WebSocket - ✅ CON INFORMACIÓN COMPLETA
+            # ✅ DESPUÉS:
             mensaje_ws = json.dumps({
-                "evento": "nueva_asistencia",
-                "id_estudiante": id_estudiante,
-                "nombre": nombre,
-                "apellido": apellido,
-                "id_clase": request.id_clase,
-                "estado": request.estado,
-                "hora": hora_actual,
-                "fecha": hoy,
-                "nombre_grupo": nombre_grupo,
-                "nombre_materia": nombre_materia
+                "tipo": "asistencia",
+                "data": {
+                    "id_estudiante": id_estudiante,
+                    "estado": request.estado,
+                    "hora": hora_actual
+                }
             })
-            
+                        
             logger.info(f"📡 Enviando WebSocket: {mensaje_ws[:150]}...")
             logger.info(f"👥 Clientes conectados: {len(manager.active_connections)}")
-            await manager.broadcast(mensaje_ws)
             await tabla_manager.broadcast(mensaje_ws, id_clase=request.id_clase)
 
             response_time = (datetime.now() - start_time).total_seconds() * 1000

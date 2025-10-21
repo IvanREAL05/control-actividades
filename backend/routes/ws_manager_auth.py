@@ -35,13 +35,18 @@ class AuthConnectionManager:
             logger.info(f"❌ Sesión removida: {session_id}")
             logger.info(f"📊 Total sesiones pendientes: {len(self.pending_sessions)}")
     
+    def obtener_sesion(self, session_id: str) -> WebSocket | None:
+        """Obtener WebSocket por session_id"""
+        return self.pending_sessions.get(session_id)
+    
     async def notify_login_success(self, session_id: str, datos_login: dict):
         """Notificar login exitoso y mantener conexión abierta un poco más"""
-        if session_id not in self.active_connections:
+        # ✅ CORREGIDO: usar pending_sessions en lugar de active_connections
+        if session_id not in self.pending_sessions:
             logger.warning(f"❌ No hay conexión activa para {session_id}")
             return False
         
-        websocket = self.active_connections[session_id]
+        websocket = self.pending_sessions[session_id]
         
         try:
             mensaje = {
@@ -60,6 +65,8 @@ class AuthConnectionManager:
             
         except Exception as e:
             logger.error(f"❌ Error enviando login exitoso a {session_id}: {e}")
+            # Si hay error, desconectar
+            self.disconnect(session_id)
             return False
         
     async def notify_error(self, session_id: str, mensaje: str):

@@ -7,644 +7,687 @@ import time
 from PIL import Image
 import numpy as np
 import os
+import json
 
 st.set_page_config(
-    page_title="Sistema de Asistencias - Login",
+    page_title="Sistema de Control de Asistencias",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-def verificar_login_desde_params():
-    """
-    Lee los datos de login desde query parameters después del redirect del WebSocket.
-    """
-    query_params = st.query_params
-    
-    if query_params.get("login_exitoso") == "true":
-        print("✅ Login detectado en query params")
-        
-        try:
-            # Validar que tenemos los datos mínimos necesarios
-            id_clase = query_params.get("id_clase")
-            id_profesor = query_params.get("id_profesor")
-            
-            if not id_clase or not id_profesor:
-                print("❌ Faltan datos esenciales en query params")
-                st.query_params.clear()
-                return False
-            
-            # Guardar en session_state
-            st.session_state.login_exitoso = True
-            st.session_state.id_clase = int(id_clase)
-            st.session_state.id_profesor = int(id_profesor)
-            st.session_state.nombre_profesor = query_params.get("nombre_profesor", "Profesor")
-            st.session_state.materia = query_params.get("materia", "Materia")
-            st.session_state.grupo = query_params.get("grupo", "Grupo")
-            
-            print(f"📊 Datos guardados - Profesor: {st.session_state.id_profesor}, Clase: {st.session_state.id_clase}")
-            
-            # Limpiar query params
-            st.query_params.clear()
-            
-            # Redirigir inmediatamente
-            print("🔄 Redirigiendo a estadísticas...")
-            st.switch_page("pages/estadisticas.py")
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error procesando query params: {e}")
-            st.query_params.clear()
-            return False
-    
-    return False
-
-# =============================================
-# ESTILOS CSS PROFESIONALES
-# =============================================
+# CSS para hacer todo más grande y visible
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    * {
-        font-family: 'Inter', sans-serif;
-    }
-    
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 0;
+        margin: 0 !important;
+        padding: 0 !important;
     }
-    
-    .main-header {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(20px);
-        padding: 1.5rem 3rem;
-        border-radius: 0 0 25px 25px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-        margin-bottom: 2rem;
+    .block-container {
+        padding: 0 !important;
+        max-width: 100% !important;
     }
-    
-    .header-content {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        max-width: 1200px;
-        margin: 0 auto;
-    }
-    
-    .logo-container {
-        display: flex;
-        align-items: center;
-        gap: 2rem;
-    }
-    
-    .logo-img {
-        height: 70px;
-        width: auto;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    
-    .school-info {
-        text-align: center;
-        flex-grow: 1;
-    }
-    
-    .school-name {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: #2d3748;
-        margin: 0;
-    }
-    
-    .school-system {
-        font-size: 1rem;
-        color: #718096;
-        margin: 0.3rem 0 0 0;
-        font-weight: 500;
-    }
-    
-    .main-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 0 2rem;
-    }
-    
-    .info-panel {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(20px);
-        border-radius: 20px;
-        padding: 3rem;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
-        height: 100%;
-    }
-    
-    .qr-panel {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(20px);
-        border-radius: 20px;
-        padding: 3rem;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
-        height: 100%;
-        text-align: center;
-    }
-    
-    .feature-item {
-        display: flex;
-        align-items: flex-start;
-        gap: 1.5rem;
-        margin: 2rem 0;
-        padding: 1.5rem;
-        background: white;
-        border-radius: 16px;
-        border-left: 4px solid #667eea;
-        transition: transform 0.3s ease;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
-    
-    .feature-item:hover {
-        transform: translateX(8px);
-        background: #f8fafc;
-    }
-    
-    .feature-icon {
-        font-size: 2rem;
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border-radius: 12px;
-        flex-shrink: 0;
-    }
-    
-    .status-badge {
-        background: linear-gradient(135deg, #48bb78, #38a169);
-        color: white;
-        padding: 1rem 2.5rem;
-        border-radius: 50px;
-        font-weight: 600;
-        font-size: 1.1rem;
-        display: inline-block;
-        margin: 1rem 0;
-        box-shadow: 0 8px 25px rgba(72, 187, 120, 0.3);
-    }
-    
-    .timer-display {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        padding: 1.2rem 2.5rem;
-        border-radius: 50px;
-        font-size: 1.4rem;
-        font-weight: 700;
-        display: inline-block;
-        margin: 1.5rem 0;
-        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-        font-variant-numeric: tabular-nums;
-    }
-    
-    .step {
-        display: flex;
-        align-items: center;
-        gap: 1.2rem;
-        margin: 1.2rem 0;
-        padding: 1.2rem;
-        background: #f7fafc;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-    }
-    
-    .step-number {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        font-size: 1rem;
-        flex-shrink: 0;
-    }
-    
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 1rem 2.5rem;
-        font-weight: 600;
-        font-size: 1rem;
-        width: 100%;
-        transition: all 0.3s ease;
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-        margin-top: 1.5rem;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
-    }
-    
-    .feature-title {
-        color: #2d3748 !important;
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin: 0 0 0.5rem 0;
-    }
-    
-    .feature-text {
-        color: #4a5568 !important;
-        margin: 0;
-        line-height: 1.5;
-    }
-    
-    .welcome-title {
-        font-size: 2.5rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 1rem;
-        line-height: 1.2;
-    }
-    
-    .welcome-subtitle {
-        font-size: 1.2rem;
-        color: #4a5568;
-        margin-bottom: 3rem;
-        line-height: 1.6;
-        font-weight: 500;
-    }
-    
-    .expired-badge {
-        background: #e53e3e;
-        color: white;
-        padding: 1rem 2rem;
-        border-radius: 50px;
-        display: inline-block;
-        font-weight: 600;
-        margin: 2rem 0;
-    }
-    
-    .success-panel {
-        background: linear-gradient(135deg, #48bb78, #38a169);
-        color: white;
-        padding: 3rem;
-        border-radius: 20px;
-        text-align: center;
-        box-shadow: 0 20px 60px rgba(72, 187, 120, 0.3);
+    section.main > div {
+        padding: 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# =============================================
-# FUNCIONES
-# =============================================
+# Verificar si venimos de un login exitoso
+query_params = st.query_params
 
-def cargar_logo_base64(ruta_archivo):
-    """Cargar imagen y convertir a base64"""
-    try:
-        if os.path.exists(ruta_archivo):
-            with open(ruta_archivo, 'rb') as f:
-                return base64.b64encode(f.read()).decode()
+if query_params.get("login") == "success":
+    st.session_state.login_exitoso = True
+    st.session_state.id_clase = int(query_params.get("id_clase"))
+    st.session_state.id_profesor = int(query_params.get("id_profesor"))
+    st.session_state.nombre_profesor = query_params.get("nombre_profesor", "")
+    st.session_state.materia = query_params.get("materia", "")
+    st.session_state.grupo = query_params.get("grupo", "")
+    st.query_params.clear()
+    st.rerun()
+
+# Si ya hay sesión activa, mostrar dashboard con tabla
+if st.session_state.get("login_exitoso"):
+    id_clase = st.session_state.id_clase
+    
+    @st.cache_data(ttl=300)
+    def obtener_datos_iniciales(id_clase):
+        try:
+            response = requests.get(f"http://localhost:8000/api/tabla/{id_clase}/datos", timeout=5)
+            if response.status_code == 200:
+                return response.json()
+        except:
+            pass
         return None
-    except:
-        return None
+    
+    datos = obtener_datos_iniciales(id_clase)
+    
+    if not datos or not datos.get('estudiantes'):
+        st.warning("⚠️ No hay estudiantes registrados en esta clase.")
+        if st.button("🚪 Cerrar Sesión"):
+            for key in list(st.session_state.keys()):
+                if not key.startswith('_'):
+                    del st.session_state[key]
+            st.rerun()
+        st.stop()
+    
+    clase_info = datos.get('clase', {})
+    actividades = datos.get('actividades', [])
+    datos_json = json.dumps(datos)
+    
+    actividades_headers = "".join([f'<th class="act-header">{act["nombre"]}</th>' for act in actividades])
+    
+    html_tabla = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }}
+            html, body {{ 
+                height: 100vh;
+                width: 100vw;
+                overflow: hidden;
+                background: #f3f4f6;
+            }}
+            .main-container {{
+                height: 100vh;
+                width: 100vw;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }}
+            .live-indicator {{
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+                color: white;
+                padding: 12px 24px;
+                border-radius: 30px;
+                font-weight: 700;
+                font-size: 16px;
+                box-shadow: 0 4px 20px rgba(16, 185, 129, 0.5);
+                z-index: 10000;
+                animation: pulse 2s infinite;
+            }}
+            @keyframes pulse {{
+                0%, 100% {{ opacity: 1; transform: scale(1); }}
+                50% {{ opacity: 0.8; transform: scale(1.05); }}
+            }}
+            .header {{
+                background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+                padding: 25px 40px;
+                box-shadow: 0 4px 20px rgba(30, 64, 175, 0.3);
+                flex-shrink: 0;
+            }}
+            .header-content {{
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }}
+            .header-title {{
+                text-align: center;
+            }}
+            .header-title h1 {{
+                color: white;
+                margin: 0;
+                font-size: 36px;
+                font-weight: 700;
+                text-shadow: 2px 2px 6px rgba(0,0,0,0.3);
+            }}
+            .header-title p {{
+                color: #e0e7ff;
+                margin: 12px 0 0 0;
+                font-size: 20px;
+                font-weight: 600;
+            }}
+            .info-bar {{
+                background: white;
+                padding: 20px 40px;
+                display: flex;
+                justify-content: space-around;
+                gap: 30px;
+                box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+                flex-shrink: 0;
+            }}
+            .info-item {{
+                text-align: center;
+            }}
+            .info-label {{
+                font-size: 14px;
+                color: #6b7280;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            .info-value {{
+                font-size: 32px;
+                font-weight: 700;
+                color: #1e40af;
+                margin-top: 8px;
+            }}
+            .content-area {{
+                flex: 1;
+                padding: 25px;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }}
+            .table-container {{
+                background: white;
+                border-radius: 20px;
+                padding: 30px;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+                flex: 1;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }}
+            .table-wrapper {{
+                flex: 1;
+                overflow: auto;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: separate;
+                border-spacing: 0;
+                font-size: 16px;
+            }}
+            thead {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }}
+            th {{
+                color: white;
+                padding: 18px 16px;
+                text-align: left;
+                font-weight: 700;
+                font-size: 15px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            th.act-header {{
+                text-align: center;
+                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            }}
+            tbody tr {{
+                border-bottom: 2px solid #e5e7eb;
+                transition: background 0.2s;
+            }}
+            tbody tr:hover {{
+                background: #f9fafb;
+            }}
+            td {{
+                padding: 18px 16px;
+                color: #374151;
+                font-size: 15px;
+            }}
+            td.act-cell {{
+                text-align: center;
+            }}
+            .badge {{
+                display: inline-block;
+                padding: 8px 16px;
+                border-radius: 25px;
+                font-weight: 700;
+                font-size: 13px;
+                text-transform: uppercase;
+                white-space: nowrap;
+            }}
+            .badge-presente {{ background: #d1fae5; color: #065f46; }}
+            .badge-retardo {{ background: #fef3c7; color: #92400e; }}
+            .badge-ausente {{ background: #fee2e2; color: #991b1b; }}
+            .badge-justificante {{ background: #dbeafe; color: #1e40af; }}
+            .badge-pendiente {{ background: #f3f4f6; color: #6b7280; }}
+            .badge-entregado {{ background: #d1fae5; color: #065f46; }}
+            .row-updating {{ animation: highlightRow 0.8s ease; }}
+            @keyframes highlightRow {{ 0%, 100% {{ background: white; }} 50% {{ background: #fef3c7; }} }}
+            .ws-status {{
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: #10b981;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 25px;
+                font-size: 14px;
+                font-weight: 700;
+                box-shadow: 0 4px 20px rgba(16, 185, 129, 0.5);
+                z-index: 10000;
+            }}
+            .ws-status.disconnected {{ background: #ef4444; }}
+            
+            /* Personalizar scrollbar */
+            .table-wrapper::-webkit-scrollbar {{
+                width: 10px;
+                height: 10px;
+            }}
+            .table-wrapper::-webkit-scrollbar-track {{
+                background: #f1f1f1;
+                border-radius: 10px;
+            }}
+            .table-wrapper::-webkit-scrollbar-thumb {{
+                background: #667eea;
+                border-radius: 10px;
+            }}
+            .table-wrapper::-webkit-scrollbar-thumb:hover {{
+                background: #764ba2;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="main-container">
+            <div class="live-indicator">🔴 EN VIVO</div>
+            
+            <div class="header">
+                <div class="header-content">
+                    <div class="header-title">
+                        <h1>UA PREP. "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
+                        <p>📋 Bienvenido {st.session_state.nombre_profesor} - Clase {id_clase}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="info-bar">
+                <div class="info-item"><div class="info-label">Materia</div><div class="info-value" id="nombre-materia">-</div></div>
+                <div class="info-item"><div class="info-label">Grupo</div><div class="info-value" id="nombre-grupo">-</div></div>
+                <div class="info-item"><div class="info-label">Total Estudiantes</div><div class="info-value" id="total-estudiantes">0</div></div>
+                <div class="info-item"><div class="info-label">Presentes</div><div class="info-value" style="color: #10b981;" id="total-presentes">0</div></div>
+                <div class="info-item"><div class="info-label">Actividades Hoy</div><div class="info-value" style="color: #3b82f6;" id="total-actividades">0</div></div>
+            </div>
+            
+            <div class="content-area">
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Grupo</th><th>Nombre</th><th>Matrícula</th><th>Asistencia</th><th>Hora</th>{actividades_headers}</tr></thead>
+                            <tbody id="tabla-body"><tr><td colspan="100" style="text-align:center; padding: 40px; font-size: 18px;">Cargando datos...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="ws-status" id="ws-status">Conectando...</div>
+        </div>
+        
+        <script>
+            const datosIniciales = {datos_json};
+            const ID_CLASE = {id_clase};
+            const claseInfo = datosIniciales.clase;
+            const actividades = datosIniciales.actividades;
+            const estudiantesMap = new Map();
+            datosIniciales.estudiantes.forEach(est => estudiantesMap.set(est.id_estudiante, est));
+            
+            document.getElementById('nombre-materia').textContent = claseInfo.materia;
+            document.getElementById('nombre-grupo').textContent = claseInfo.grupo;
+            document.getElementById('total-actividades').textContent = actividades.length;
+            
+            const estadoMap = {{
+                'presente': {{ badge: 'badge-presente', emoji: '✅', texto: 'Presente' }},
+                'retardo': {{ badge: 'badge-retardo', emoji: '⏰', texto: 'Retardo' }},
+                'ausente': {{ badge: 'badge-ausente', emoji: '❌', texto: 'Ausente' }},
+                'justificante': {{ badge: 'badge-justificante', emoji: '📝', texto: 'Justificante' }},
+                'pendiente': {{ badge: 'badge-pendiente', emoji: '⚪', texto: 'Pendiente' }}
+            }};
+            
+            function renderizarTabla() {{
+                const tbody = document.getElementById('tabla-body');
+                tbody.innerHTML = '';
+                estudiantesMap.forEach((estudiante, id) => tbody.appendChild(crearFila(estudiante, id)));
+                actualizarEstadisticas();
+            }}
+            
+            function crearFila(estudiante, id) {{
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-id', id);
+                const estado = estadoMap[estudiante.asistencia] || estadoMap['pendiente'];
+                
+                let actividadesCells = '';
+                actividades.forEach(act => {{
+                    const actIdStr = String(act.id);
+                    const estadoAct = estudiante.actividades && estudiante.actividades[actIdStr] ? estudiante.actividades[actIdStr] : 'pendiente';
+                    const badgeClass = estadoAct === 'entregado' ? 'badge-entregado' : 'badge-pendiente';
+                    const emoji = estadoAct === 'entregado' ? '✅' : '⚪';
+                    const texto = estadoAct === 'entregado' ? 'Entregado' : 'Pendiente';
+                    actividadesCells += `<td class="act-cell"><span class="badge ${{badgeClass}}">${{emoji}} ${{texto}}</span></td>`;
+                }});
+                
+                tr.innerHTML = `
+                    <td>${{estudiante.grupo}}</td>
+                    <td><strong>${{estudiante.nombre_completo}}</strong></td>
+                    <td>${{estudiante.matricula}}</td>
+                    <td><span class="badge ${{estado.badge}}">${{estado.emoji}} ${{estado.texto}}</span></td>
+                    <td>${{estudiante.hora_entrada || '-'}}</td>
+                    ${{actividadesCells}}
+                `;
+                return tr;
+            }}
+            
+            function actualizarEstadisticas() {{
+                let total = 0, presentes = 0;
+                estudiantesMap.forEach(est => {{ total++; if (est.asistencia === 'presente') presentes++; }});
+                document.getElementById('total-estudiantes').textContent = total;
+                document.getElementById('total-presentes').textContent = presentes;
+            }}
+            
+            renderizarTabla();
+            
+            let ws = new WebSocket('ws://localhost:8000/ws/tabla/{id_clase}');
+            console.log("📡 Intentando conectar WebSocket...");
+            const wsStatus = document.getElementById('ws-status');
+            
+            ws.onopen = () => {{ 
+                console.log("✅ WebSocket conectado correctamente al servidor");
+                wsStatus.textContent = '🟢 Conectado';
+                wsStatus.classList.remove('disconnected');
+            }};
+            ws.onmessage = (event) => {{
+                console.log("📩 Mensaje recibido del servidor:", event.data);
+                try {{
+                    const mensaje = JSON.parse(event.data);
+                    console.log("🧩 Tipo de mensaje:", mensaje.tipo, "→", mensaje.data);
+                    if (mensaje.tipo === 'asistencia') {{
+                        const est = estudiantesMap.get(mensaje.data.id_estudiante);
+                        if (est) {{
+                            est.asistencia = mensaje.data.estado;
+                            est.hora_entrada = mensaje.data.hora || '';
+                            console.log(`✅ Actualizando fila de ${{est.nombre_completo}} → ${{est.asistencia}}`);
+                            renderizarTabla();
+                        }}
+                    }} else if (mensaje.tipo === 'actividad') {{
+                        for (let [id, est] of estudiantesMap) {{
+                            if (est.matricula === mensaje.data.matricula) {{
+                                if (!est.actividades) est.actividades = {{}};
+                                est.actividades[String(mensaje.data.id_actividad)] = 'entregado';
+                                console.log(`📘 Actividad entregada para ${{est.nombre_completo}}`);
+                                renderizarTabla();
+                                break;
+                            }}
+                        }}
+                    }}
+                }} catch(e) {{ console.error(e); }}
+            }};
+            ws.onerror = (e) => {{
+            console.error("❌ Error en WebSocket:", e);
+            wsStatus.textContent = '🔴 Error';
+            wsStatus.classList.add('disconnected');
+            }};
+
+            ws.onclose = (e) => {{
+                console.warn("🔌 WebSocket cerrado:", e);
+                wsStatus.textContent = '🔴 Desconectado';
+                wsStatus.classList.add('disconnected');
+            }};
+        </script>
+    </body>
+    </html>
+    """
+    
+    st.components.v1.html(html_tabla, height=900, scrolling=False)
+    
+    if st.button("🚪 Cerrar Sesión"):
+        for key in list(st.session_state.keys()):
+            if not key.startswith('_'):
+                del st.session_state[key]
+        st.rerun()
+    
+    st.stop()
+
+# ============================================
+# PÁGINA DE LOGIN CON QR Y WEBSOCKET
+# ============================================
 
 def generar_sesion_qr():
-    """Solicitar al backend un nuevo session_id"""
+    """Generar session_id"""
     try:
-        response = requests.post(
-            "http://localhost:8000/api/login/auth/generar-sesion-qr",
-            timeout=5
-        )
+        response = requests.post("http://localhost:8000/api/login/auth/generar-sesion-qr", timeout=5)
         if response.status_code == 200:
             data = response.json()
             return data["session_id"], data["expires_in"]
-        return None, None
     except:
-        return None, None
+        pass
+    return None, None
 
-def crear_qr_pil_image(session_id: str):
-    """Generar imagen QR como numpy array"""
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(session_id)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="#667eea", back_color="white")
-    return np.array(img.convert('RGB'))
+if "session_id" not in st.session_state or st.session_state.session_id is None:
+    session_id, expires_in = generar_sesion_qr()
+    if session_id:
+        st.session_state.session_id = session_id
+        st.session_state.expires_at = time.time() + expires_in
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(session_id)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="#667eea", back_color="white")
+        st.session_state.qr_image = np.array(img.convert('RGB'))
+    else:
+        st.error("❌ Error conectando con el servidor")
+        st.stop()
 
-# =============================================
-# VERIFICAR SI YA HAY LOGIN ACTIVO - AL INICIO
-# =============================================
+tiempo_restante = int(st.session_state.expires_at - time.time())
+if tiempo_restante <= 0:
+    st.warning("⏱️ Código QR expirado")
+    if st.button("🔄 Generar Nuevo Código"):
+        st.session_state.session_id = None
+        st.rerun()
+    st.stop()
 
-# ✅ PRIMERO: Verificar si vienen datos en query params (después del WebSocket)
-if verificar_login_desde_params():
-    print("🔄 Redirigiendo a estadísticas desde query params...")
-    st.switch_page("pages/estadisticas.py")
+session_id = st.session_state.session_id
+minutos = tiempo_restante // 60
+segundos = tiempo_restante % 60
 
-# ✅ SEGUNDO: Si ya hay login en session_state, redirigir
-if st.session_state.get("login_exitoso", False):
-    print("🔄 Redirigiendo a estadísticas desde session_state...")
-    st.switch_page("pages/estadisticas.py")
+buffered = BytesIO()
+Image.fromarray(st.session_state.qr_image).save(buffered, format="PNG")
+qr_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-# ✅ TERCERO: Inicializar session_state si no existe
-if "session_id" not in st.session_state:
-    st.session_state.session_id = None
-    st.session_state.qr_image = None
-    st.session_state.expires_at = None
-    st.session_state.login_status = "waiting"
-    st.session_state.login_exitoso = False
-# =============================================
-# INICIALIZACIÓN
-# =============================================
-
-if "session_id" not in st.session_state:
-    st.session_state.session_id = None
-    st.session_state.qr_image = None
-    st.session_state.expires_at = None
-    st.session_state.login_status = "waiting"
-    st.session_state.login_exitoso = False
-
-if st.session_state.session_id is None:
-    with st.spinner("🔄 Generando código de acceso..."):
-        session_id, expires_in = generar_sesion_qr()
-        if session_id:
-            st.session_state.session_id = session_id
-            st.session_state.qr_image = crear_qr_pil_image(session_id)
-            st.session_state.expires_at = time.time() + expires_in
-            st.session_state.login_status = "waiting"
-            st.rerun()
-        else:
-            st.error("❌ No se pudo conectar con el servidor")
-            st.stop()
-
-# =============================================
-# HEADER
-# =============================================
-
-logo_buap = cargar_logo_base64('assets/logo_buap.jpg')
-logo_prep = cargar_logo_base64('assets/logo1.jpeg')
-
-header_html = f"""
-<div class="main-header">
-    <div class="header-content">
-        <div class="logo-container">
-            {f'<img src="data:image/jpeg;base64,{logo_buap}" class="logo-img" alt="BUAP">' if logo_buap else '<div class="logo-img" style="background: #667eea; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">BUAP</div>'}
-            <div class="school-info">
-                <h1 class="school-name">PREPARATORIA "GRAL. LÁZARO CÁRDENAS DEL RÍO"</h1>
-                <p class="school-system">Sistema de Control de Asistencias</p>
-            </div>
-            {f'<img src="data:image/jpeg;base64,{logo_prep}" class="logo-img" alt="Preparatoria">' if logo_prep else '<div class="logo-img" style="background: #764ba2; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">PREP</div>'}
+html_content = f"""
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login QR</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }}
+        html, body {{ height: 100vh; width: 100vw; overflow: hidden; }}
+        body {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        .container {{
+            background: white;
+            border-radius: 25px;
+            padding: 35px 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 480px;
+            width: 100%;
+            max-height: 95vh;
+            overflow-y: auto;
+        }}
+        .logo-section {{
+            margin-bottom: 20px;
+        }}
+        .logo-section h2 {{
+            color: #1e40af;
+            font-size: 1.3rem;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }}
+        .logo-section p {{
+            color: #667eea;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }}
+        h1 {{ 
+            color: #2d3748; 
+            font-size: 1.8rem; 
+            margin-bottom: 8px;
+            font-weight: 700;
+        }}
+        .subtitle {{ 
+            color: #718096; 
+            margin-bottom: 20px; 
+            font-size: 1rem;
+        }}
+        .qr-container {{ 
+            background: #f7fafc; 
+            padding: 25px; 
+            border-radius: 15px; 
+            margin: 20px 0; 
+        }}
+        .qr-image {{ 
+            width: 220px; 
+            height: 220px; 
+            margin: 0 auto; 
+        }}
+        .timer {{
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 25px;
+            border-radius: 50px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin: 15px 0;
+            display: inline-block;
+        }}
+        .status {{
+            background: #48bb78;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-weight: 600;
+            margin: 15px 0;
+            display: inline-block;
+            font-size: 0.95rem;
+        }}
+        .status.connecting {{ background: #ed8936; }}
+        .status.error {{ background: #f56565; }}
+        .instructions {{ 
+            text-align: left; 
+            margin-top: 20px; 
+            color: #4a5568; 
+        }}
+        .instructions h3 {{ 
+            margin-bottom: 12px; 
+            color: #2d3748; 
+            font-size: 1.1rem;
+            text-align: center;
+        }}
+        .step {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            margin: 8px 0;
+            background: #f7fafc;
+            border-radius: 10px;
+        }}
+        .step-number {{
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+            font-size: 13px;
+        }}
+        .step div {{ font-size: 0.9rem; }}
+        
+        /* Scrollbar personalizada */
+        .container::-webkit-scrollbar {{ width: 8px; }}
+        .container::-webkit-scrollbar-track {{ background: #f1f1f1; border-radius: 10px; }}
+        .container::-webkit-scrollbar-thumb {{ background: #667eea; border-radius: 10px; }}
+        .container::-webkit-scrollbar-thumb:hover {{ background: #764ba2; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo-section">
+            <h2>🎓 Sistema de Control de Asistencias en Tiempo Real</h2>
+            <p>Preparatoria Gral. Lázaro Cárdenas del Río</p>
+        </div>
+        
+        <h1>🔐 Acceso Seguro</h1>
+        <p class="subtitle">Escanea el código QR con tu app móvil</p>
+        
+        <div class="status" id="status">⏳ Esperando escaneo...</div>
+        
+        <div class="qr-container">
+            <img src="data:image/png;base64,{qr_base64}" class="qr-image" alt="QR Code">
+        </div>
+        
+        <div class="timer" id="timer">{minutos:02d}:{segundos:02d}</div>
+        
+        <div class="instructions">
+            <h3>📋 Instrucciones</h3>
+            <div class="step"><div class="step-number">1</div><div>Abre la app móvil de docente</div></div>
+            <div class="step"><div class="step-number">2</div><div>Toca en "Acceder al Dashboard"</div></div>
+            <div class="step"><div class="step-number">3</div><div>Escanea este código QR</div></div>
+            <div class="step"><div class="step-number">4</div><div>Selecciona tu clase y confirma</div></div>
         </div>
     </div>
-</div>
-"""
 
-st.markdown(header_html, unsafe_allow_html=True)
-
-# =============================================
-# CONTENIDO PRINCIPAL
-# =============================================
-
-st.markdown('<div class="main-container">', unsafe_allow_html=True)
-
-col1, col2 = st.columns(2, gap="large")
-
-with col1:
-    st.markdown("""
-    <div class="info-panel">
-        <h1 class="welcome-title">Bienvenido al Sistema</h1>
-        <p class="welcome-subtitle">
-            Accede de forma segura mediante código QR y gestiona tus clases 
-            en tiempo real con nuestra plataforma integrada.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    features = [
-        {"icon": "📊", "title": "Estadísticas en Tiempo Real", "text": "Visualiza datos actualizados de asistencia y rendimiento de tus grupos al instante."},
-        {"icon": "✅", "title": "Control Simplificado", "text": "Gestiona asistencias, actividades y evaluaciones de manera eficiente y organizada."},
-        {"icon": "🔒", "title": "Acceso Seguro", "text": "Autenticación de dos factores mediante QR para máxima seguridad de los datos."},
-        {"icon": "📱", "title": "Sincronización Móvil", "text": "Integración perfecta con la aplicación móvil para acceso en cualquier momento."}
-    ]
-    
-    for feature in features:
-        st.markdown(f"""
-        <div class="feature-item">
-            <div class="feature-icon">{feature['icon']}</div>
-            <div class="feature-content">
-                <div class="feature-title">{feature['title']}</div>
-                <div class="feature-text">{feature['text']}</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-with col2:
-    if st.session_state.login_status == "waiting":
-        tiempo_restante = int(st.session_state.expires_at - time.time())
-        
-        if tiempo_restante > 0:
-            minutos = tiempo_restante // 60
-            segundos = tiempo_restante % 60
-            
-            st.markdown("""
-            <div class="qr-panel">
-                <h2 style="font-size: 2rem; font-weight: 700; color: #2d3748; margin-bottom: 1rem;">
-                    🔐 Acceso Seguro
-                </h2>
-                <p style="font-size: 1.1rem; color: #4a5568; margin-bottom: 2rem; line-height: 1.5; font-weight: 500;">
-                    Escanea este código QR con la aplicación móvil para acceder al sistema
-                </p>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-                <div class="status-badge">
-                    ⏳ Esperando autenticación...
-                </div>
-            """, unsafe_allow_html=True)
-            
-            st.image(st.session_state.qr_image, width=280)
-            
-            st.markdown(f"""
-                <div class="timer-display">
-                    ⏱️ {minutos:02d}:{segundos:02d}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-                <div style="margin-top: 2.5rem; text-align: left;">
-                    <h3 style="color: #2d3748; font-size: 1.3rem; font-weight: 600; margin-bottom: 1.5rem; text-align: center;">
-                        📋 Instrucciones de Acceso
-                    </h3>
-            """, unsafe_allow_html=True)
-            
-            steps = [
-                "Abre la aplicación móvil de docente",
-                "Selecciona 'Acceder al Dashboard'",
-                "Escanea este código QR con la cámara", 
-                "Selecciona tu clase y confirma"
-            ]
-            
-            for i, step in enumerate(steps, 1):
-                st.markdown(f"""
-                    <div class="step">
-                        <div class="step-number">{i}</div>
-                        <div style="color: #4a5568; font-weight: 500; line-height: 1.5;">{step}</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            if st.button("🔄 Generar Nuevo Código QR", use_container_width=True, key="refresh_btn"):
-                st.session_state.session_id = None
-                st.rerun()
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-                
-        else:
-            st.session_state.login_status = "expired"
-            st.rerun()
-    
-    elif st.session_state.login_status == "expired":
-        st.markdown("""
-        <div class="qr-panel">
-            <h2 style="font-size: 2rem; font-weight: 700; color: #2d3748; margin-bottom: 1rem;">
-                ⏱️ Código Expirado
-            </h2>
-            <p style="font-size: 1.1rem; color: #4a5568; margin-bottom: 2rem; line-height: 1.5; font-weight: 500;">
-                El código QR ha caducado por motivos de seguridad
-            </p>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-            <div class="expired-badge">
-                ❌ Código Expirado
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-            <p style="color: #4a5568; margin: 2rem 0; line-height: 1.6; font-weight: 500;">
-                Por seguridad, los códigos QR tienen un tiempo limitado de valencia.<br>
-                Genera un nuevo código para continuar con el acceso al sistema.
-            </p>
-        """, unsafe_allow_html=True)
-        
-        if st.button("🔄 Generar Nuevo Código QR", use_container_width=True, key="refresh_expired"):
-            st.session_state.session_id = None
-            st.rerun()
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# =============================================
-# WEBSOCKET Y AUTO-REFRESH
-# =============================================
-if st.session_state.login_status == "waiting":
-    import streamlit.components.v1 as components
-    
-    html_ws = f"""
     <script>
-        console.log('🚀 Iniciando WebSocket para sesión: {st.session_state.session_id}');
+        const ws = new WebSocket('ws://localhost:8000/ws/login/auth/{session_id}');
+        const statusEl = document.getElementById('status');
+        const timerEl = document.getElementById('timer');
+        let tiempoRestante = {tiempo_restante};
         
-        let ws = new WebSocket('ws://localhost:8000/ws/login/auth/{st.session_state.session_id}');
-        let redirectInProgress = false;
-        
-        ws.onopen = () => {{
-            console.log('✅ WebSocket conectado exitosamente');
-        }};
-        
-        ws.onmessage = (event) => {{
-            console.log('📩 RAW MESSAGE:', event.data);
+        const interval = setInterval(() => {{
+            tiempoRestante--;
+            const mins = Math.floor(tiempoRestante / 60);
+            const secs = tiempoRestante % 60;
+            timerEl.textContent = `${{mins.toString().padStart(2, '0')}}:${{secs.toString().padStart(2, '0')}}`;
             
+            if (tiempoRestante <= 0) {{
+                clearInterval(interval);
+                statusEl.textContent = '❌ Código expirado';
+                statusEl.className = 'status error';
+                setTimeout(() => window.location.reload(), 2000);
+            }}
+        }}, 1000);
+        
+        ws.onopen = () => {{ statusEl.textContent = '⏳ Esperando escaneo...'; statusEl.className = 'status'; }};
+        ws.onmessage = (event) => {{
+            if (event.data === 'pong') return;
             try {{
                 const data = JSON.parse(event.data);
-                console.log('📦 PARSED DATA:', JSON.stringify(data, null, 2));
-                
-                if (data.tipo === 'login_exitoso' && !redirectInProgress) {{
-                    console.log('🎉 Login exitoso detectado!');
-                    redirectInProgress = true;
-                    
-                    if (!data.datos || !data.datos.id_clase) {{
-                        console.error('❌ Faltan datos en la respuesta:', data.datos);
-                        return;
-                    }}
-                    
-                    // Construir URL con query parameters
-                    const params = new URLSearchParams({{
-                        login_exitoso: 'true',
-                        id_clase: data.datos.id_clase,
-                        id_profesor: data.datos.id_profesor,
-                        nombre_profesor: data.datos.nombre_profesor || '',
-                        materia: data.datos.materia || '',
-                        grupo: data.datos.grupo || ''
-                    }});
-                    
-                    console.log('🔗 Query params construidos:', params.toString());
-                    
-                    // NO cerrar el WebSocket aquí - dejar que el backend lo maneje
-                    
-                    // Construir URL completa
-                    const baseUrl = window.location.origin + window.location.pathname;
-                    const newUrl = baseUrl + '?' + params.toString();
-                    
-                    console.log('🔄 Redirigiendo a:', newUrl);
-                    
-                    // Redirigir inmediatamente
-                    window.location.href = newUrl;
+                if (data.tipo === 'login_exitoso') {{
+                    clearInterval(interval);
+                    statusEl.textContent = '✅ ¡Login exitoso!';
+                    statusEl.className = 'status';
+                    const datos = data.datos;
+                    const params = new URLSearchParams();
+                    params.set('login', 'success');
+                    params.set('id_clase', datos.id_clase);
+                    params.set('id_profesor', datos.id_profesor);
+                    params.set('nombre_profesor', datos.nombre_profesor);
+                    params.set('materia', datos.materia);
+                    params.set('grupo', datos.grupo);
+                    window.location.href = 'http://localhost:8501/?' + params.toString();
                 }}
-            }} catch (error) {{
-                console.error('❌ Error procesando mensaje:', error);
-            }}
+            }} catch (error) {{ console.error(error); }}
         }};
-        
-        ws.onerror = (error) => {{
-            console.error('❌ Error en WebSocket:', error);
-        }};
-        
-        ws.onclose = (event) => {{
-            console.log('🔴 WebSocket cerrado - Code:', event.code, 'Reason:', event.reason);
-        }};
-        
-        // Enviar ping cada 20 segundos
-        setInterval(() => {{
-            if (ws.readyState === WebSocket.OPEN) {{
-                ws.send('ping');
-                console.log('🏓 Ping enviado');
-            }}
-        }}, 20000);
+        ws.onerror = () => {{ statusEl.textContent = '⚠️ Error de conexión'; statusEl.className = 'status error'; }};
+        setInterval(() => {{ if (ws.readyState === WebSocket.OPEN) ws.send('ping'); }}, 20000);
     </script>
-    """
-    
-    components.html(html_ws, height=0)
-    
-    # 🔍 DEBUG INFO - Agrega esto DESPUÉS del components.html
-    with st.expander("🔍 Debug Info", expanded=False):
-        st.write("**Session State:**", st.session_state)
-        st.write("**Query Params:**", dict(st.query_params))
-        tiempo_restante = int(st.session_state.expires_at - time.time()) if st.session_state.expires_at else 0
-        st.write("**Tiempo restante:**", f"{tiempo_restante} segundos")
-        st.write("**Session ID:**", st.session_state.session_id)
-        st.write("**Login Status:**", st.session_state.login_status)
-    
-    # Solo refrescar si no hay redirección en progreso y el tiempo no ha expirado
-    tiempo_restante = int(st.session_state.expires_at - time.time())
-    if tiempo_restante > 0:
-        # Esperar más tiempo entre refrescos
-        time.sleep(5)
-        st.rerun()
-    elif tiempo_restante <= 0:
-        st.session_state.login_status = "expired"
-        st.rerun()
+</body>
+</html>
+"""
+
+st.components.v1.html(html_content, height=750, scrolling=False)

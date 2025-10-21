@@ -559,7 +559,7 @@ async def confirmar_sesion(request: ConfirmarSesionRequest):
     
     # 6️⃣ Obtener datos del profesor
     profesor = await fetch_one(
-        "SELECT id_profesor, nombre, apellido FROM profesor WHERE id_profesor = %s",
+        "SELECT id_profesor, nombre FROM profesor WHERE id_profesor = %s",
         (id_profesor,)
     )
     
@@ -567,7 +567,7 @@ async def confirmar_sesion(request: ConfirmarSesionRequest):
     datos_login = {
         "id_clase": id_clase,
         "id_profesor": id_profesor,
-        "nombre_profesor": f"{profesor['nombre']} {profesor['apellido']}",
+        "nombre_profesor": profesor['nombre'],
         "materia": clase["materia"],
         "grupo": clase["grupo"],
         "timestamp": datetime.now().isoformat()
@@ -621,3 +621,4 @@ async def obtener_sesiones_activas():
         "sesiones": sesiones,
         "websockets_conectados": auth_manager.get_active_sessions_count()
     }
+
