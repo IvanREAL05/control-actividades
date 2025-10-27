@@ -152,9 +152,9 @@ st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases
 st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
 st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
-# Rutas de la API - CORREGIDAS
+# Rutas de la API
 API_BASE = "http://localhost:8000/api/importar"
-API_ESTUDIANTES = "http://localhost:8000/api/importar"  # ✅ Cambiado
+API_ESTUDIANTES = "http://localhost:8000/api/importar"
 API_GRUPOS = "http://localhost:8000/api/grupos/lista"
 
 # ---------- ESTADOS INICIALES ----------
@@ -171,7 +171,8 @@ columnas_esperadas = {
     "profesores": ["nombre", "apellido"],
     "grupos": ["nombre", "grado", "turno"],
     "clases": ["materia", "grupo", "profesor"],
-    "materias": ["nombre", "codigo"]
+    "materias": ["nombre", "codigo"],
+    "calificaciones": ["matricula", "nrc", "parcial_1", "parcial_2", "ordinario"]
 }
 
 imagenes_referencia = {
@@ -180,6 +181,7 @@ imagenes_referencia = {
     "grupos": "assets/tabla-grupo.png",
     "clases": "assets/tabla-clase.png",
     "materias": "assets/tabla-materia.png",
+    "calificaciones": "assets/tabla-calificaciones.png"
 }
 
 # ---------- FUNCIONES AUXILIARES ----------
@@ -190,14 +192,12 @@ def obtener_grupos():
         if response.status_code == 200:
             grupos = response.json()
             
-            # Validar que sea lista
             if not isinstance(grupos, list):
                 return []
             
             if not grupos:
                 return []
             
-            # Validar estructura
             if isinstance(grupos[0], dict) and 'id_grupo' in grupos[0] and 'nombre' in grupos[0]:
                 return grupos
             
@@ -301,7 +301,11 @@ tab1, tab2 = st.tabs(["📥 Cargar Datos", "🔧 Gestionar Estudiantes"])
 with tab1:
     st.header("📥 Cargar datos al sistema")
     
-    tipo = st.selectbox("¿Qué tipo de datos deseas subir?", ["", "estudiantes", "profesores", "grupos", "clases", "materias"], key="tipo_datos")
+    tipo = st.selectbox(
+        "¿Qué tipo de datos deseas subir?", 
+        ["", "estudiantes", "profesores", "grupos", "clases", "materias", "calificaciones"], 
+        key="tipo_datos"
+    )
     
     if tipo:
         st.markdown("### 📌 Instrucciones")
@@ -310,7 +314,23 @@ with tab1:
         for col in columnas_esperadas.get(tipo, []):
             st.markdown(f"- `{col}`")
 
-        st.image(imagenes_referencia.get(tipo), caption=f"Ejemplo para {tipo}", width="stretch")
+        # Información adicional para calificaciones
+        if tipo == "calificaciones":
+            st.info("""
+            **Notas importantes para calificaciones:**
+            - `matricula` y `nrc` son obligatorios
+            - Al menos una calificación debe estar presente (parcial_1, parcial_2 o ordinario)
+            - Las calificaciones deben estar en el rango de 0 a 10
+            - Si una calificación ya existe, será actualizada automáticamente
+            """)
+
+        # Mostrar imagen de referencia si existe
+        if tipo in imagenes_referencia:
+            try:
+                st.image(imagenes_referencia.get(tipo), caption=f"Ejemplo para {tipo}", width='stretch')
+            except:
+                st.warning("⚠️ No se encontró la imagen de referencia para este tipo de datos.")
+
         st.markdown("2. El tamaño máximo permitido es 5MB.")
         st.markdown("3. Arrastra el archivo o haz clic para seleccionarlo.")
         st.markdown("4. Haz clic en 'Guardar Cambios' para subir los datos.")
@@ -320,18 +340,50 @@ with tab1:
         if archivo:
             try:
                 df = pd.read_excel(archivo)
-                columnas_validas = set(df.columns) >= set(columnas_esperadas[tipo])
-                if not columnas_validas:
-                    st.error("❌ Las columnas del archivo no son válidas.")
+                columnas_archivo = set(df.columns)
+                columnas_requeridas = set(columnas_esperadas[tipo])
+                
+                # Validación especial para calificaciones
+                if tipo == "calificaciones":
+                    columnas_obligatorias = {"matricula", "nrc"}
+                    columnas_opcionales = {"parcial_1", "parcial_2", "ordinario"}
+                    
+                    # Verificar columnas obligatorias
+                    faltantes_obligatorias = columnas_obligatorias - columnas_archivo
+                    if faltantes_obligatorias:
+                        st.error(f"❌ Faltan columnas obligatorias: {', '.join(faltantes_obligatorias)}")
+                        columnas_validas = False
+                    else:
+                        # Verificar que al menos una columna opcional esté presente
+                        tiene_calificaciones = bool(columnas_opcionales & columnas_archivo)
+                        if not tiene_calificaciones:
+                            st.error(f"❌ Debe incluir al menos una columna de calificaciones: {', '.join(columnas_opcionales)}")
+                            columnas_validas = False
+                        else:
+                            st.success("✅ Archivo válido. Puedes guardar los cambios.")
+                            columnas_validas = True
+                            
+                            # Mostrar vista previa
+                            st.markdown("#### Vista previa de datos:")
+                            st.dataframe(df.head(10), width='stretch')
                 else:
-                    st.success("✅ Archivo válido. Puedes guardar los cambios.")
+                    # Validación estándar para otros tipos
+                    columnas_validas = columnas_archivo >= columnas_requeridas
+                    if not columnas_validas:
+                        faltantes = columnas_requeridas - columnas_archivo
+                        st.error(f"❌ Faltan las siguientes columnas: {', '.join(faltantes)}")
+                    else:
+                        st.success("✅ Archivo válido. Puedes guardar los cambios.")
+                        st.markdown("#### Vista previa de datos:")
+                        st.dataframe(df.head(10), width='stretch')
+                        
             except Exception as e:
                 st.error(f"❌ Error al leer el archivo: {e}")
                 columnas_validas = False
         else:
             columnas_validas = False
 
-        if st.button("Guardar Cambios", disabled=not archivo or not columnas_validas):
+        if st.button("💾 Guardar Cambios", disabled=not archivo or not columnas_validas):
             try:
                 tipo_actual = st.session_state.tipo_datos
                 url = f"{API_BASE}/{tipo_actual}/archivo"
@@ -340,10 +392,34 @@ with tab1:
                     "file": (archivo.name, archivo.getvalue(), archivo.type)
                 }
 
-                response = requests.post(url, files=file_data)
+                with st.spinner(f"Subiendo {tipo_actual}..."):
+                    response = requests.post(url, files=file_data)
 
                 if response.status_code == 200:
-                    st.success(f"✅ {tipo_actual.capitalize()} importados correctamente.")
+                    resultado = response.json()
+                    
+                    # Mensaje especial para calificaciones con estadísticas
+                    if tipo_actual == "calificaciones":
+                        st.success(f"✅ Calificaciones procesadas correctamente")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Insertadas", resultado.get("calificaciones_insertadas", 0))
+                        with col2:
+                            st.metric("Actualizadas", resultado.get("calificaciones_actualizadas", 0))
+                        with col3:
+                            st.metric("Total", resultado.get("total_procesadas", 0))
+                        
+                        # Mostrar errores si existen
+                        if resultado.get("errores") and len(resultado["errores"]) > 0:
+                            with st.expander(f"⚠️ Ver errores ({resultado['total_errores']})"):
+                                for error in resultado["errores"]:
+                                    st.warning(f"- {error}")
+                        
+                        st.balloons()
+                    else:
+                        st.success(f"✅ {tipo_actual.capitalize()} importados correctamente.")
+                        st.balloons()
                 else:
                     error = response.json().get("detail", "Error desconocido")
                     st.error(f"❌ Error al importar: {error}")
@@ -377,7 +453,7 @@ with tab2:
                     apellido = st.text_input("Apellido*", placeholder="Ej: Pérez García")
                     grupo_nombre = st.selectbox("Grupo*", options=["Selecciona un grupo"] + nombres_grupos)
                 
-                submitted = st.form_submit_button("💾 Guardar Estudiante", use_container_width=True)
+                submitted = st.form_submit_button("💾 Guardar Estudiante", width='stretch')
                 
                 if submitted:
                     if not matricula or not nombre or not apellido or grupo_nombre == "Selecciona un grupo":
@@ -417,7 +493,7 @@ with tab2:
     with col2:
         st.write("")
         st.write("")
-        buscar_btn = st.button("🔍 Buscar", use_container_width=True, type="primary")
+        buscar_btn = st.button("🔍 Buscar", width='stretch', type="primary")
     
     # Realizar búsqueda
     if buscar_btn and matricula_buscar:
@@ -439,13 +515,12 @@ with tab2:
         col1, col2, col3 = st.columns([1, 1, 2])
         
         with col1:
-            if st.button("✏️ Editar Información", use_container_width=True, type="primary"):
+            if st.button("✏️ Editar Información", width='stretch', type="primary"):
                 st.session_state.modo_edicion = True
                 st.rerun()
         
         with col2:
-            if st.button("🗑️ Eliminar Estudiante", use_container_width=True, type="secondary"):
-                # Confirmación de eliminación
+            if st.button("🗑️ Eliminar Estudiante", width='stretch', type="secondary"):
                 st.session_state.confirmar_eliminar = True
                 st.rerun()
     
@@ -471,7 +546,6 @@ with tab2:
                 with col2:
                     nuevo_apellido = st.text_input("Apellido", value=est['apellido'])
                     
-                    # Buscar el índice del grupo actual
                     grupo_ids = [g["id_grupo"] for g in lista_grupos]
                     try:
                         indice_actual = grupo_ids.index(est['id_grupo'])
@@ -493,10 +567,10 @@ with tab2:
                 col_save, col_cancel = st.columns(2)
                 
                 with col_save:
-                    guardar = st.form_submit_button("💾 Guardar Cambios", use_container_width=True)
+                    guardar = st.form_submit_button("💾 Guardar Cambios", width='stretch')
                 
                 with col_cancel:
-                    cancelar = st.form_submit_button("❌ Cancelar", use_container_width=True)
+                    cancelar = st.form_submit_button("❌ Cancelar", width='stretch')
                 
                 if guardar:
                     datos_edicion = {}
@@ -544,7 +618,7 @@ with tab2:
         col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
-            if st.button("🗑️ Sí, eliminar definitivamente", type="primary", use_container_width=True):
+            if st.button("🗑️ Sí, eliminar definitivamente", type="primary", width='stretch'):
                 exito, mensaje = eliminar_estudiante(est['id_estudiante'])
                 if exito:
                     st.success(f"✅ {mensaje}")
@@ -556,6 +630,6 @@ with tab2:
                     st.error(f"❌ {mensaje}")
         
         with col2:
-            if st.button("❌ No, cancelar", use_container_width=True):
+            if st.button("❌ No, cancelar", width='stretch'):
                 st.session_state.confirmar_eliminar = False
                 st.rerun()

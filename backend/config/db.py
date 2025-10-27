@@ -4,7 +4,9 @@ from typing import Optional
 import logging
 from typing import AsyncGenerator
 import os
+import ssl
 
+ssl_ctx = ssl.create_default_context(cafile="C:\\Users\\ivan_\\ca.pem")
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,7 +31,8 @@ async def init_db_pool() -> aiomysql.Pool:
                 maxsize=10,
                 echo=False,
                 pool_recycle=3600,
-                charset='utf8mb4'
+                charset='utf8mb4',
+                ssl=ssl_ctx
             )
             logger.info("✅ Pool de base de datos inicializado correctamente")
             return pool

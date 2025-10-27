@@ -1,9 +1,14 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 import aiomysql
+from pydantic import BaseModel
+from datetime import date
 from utils.fecha import obtener_fecha_hora_cdmx, convertir_fecha_a_cdmx, obtener_fecha_hora_cdmx_completa
 from config.db import fetch_one, fetch_all, execute_query
+import logging
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -472,3 +477,284 @@ async def resumen_clase(id_clase: int):
             "menor_promedio": menor_promedio,
         }
     }
+
+# ============================================
+# MODELOS PYDANTIC
+# ============================================
+
+class AsistenciasRangoResponse(BaseModel):
+    """Respuesta con el resumen de asistencias de un alumno en un rango de fechas"""
+    id_estudiante: int
+    matricula: str
+    nombre_completo: str
+    id_clase: int
+    nombre_clase: str
+    nrc: str
+    
+    # Rango consultado
+    fecha_inicio: str
+    fecha_fin: str
+    
+    # Contadores
+    total_asistencias: int
+    total_faltas: int
+    total_justificantes: int
+    total_registros: int
+    
+    # Porcentaje
+    tasa_asistencia: float  # Porcentaje de asistencias sobre el total
+    
+    # Detalles por fecha (opcional)
+    detalles: list[dict]  # Lista de {fecha, estado, hora_entrada, hora_salida}
+
+
+# ============================================
+# ENDPOINT: GET /api/estadisticas/asistencias/alumno/{id_estudiante}/clase/{id_clase}
+# ============================================
+
+# ============================================
+# ENDPOINT: GET /api/estadisticas/asistencias/alumno/{id_estudiante}/clase/{id_clase}
+# ============================================
+
+@router.get(
+    "/asistencias/alumno/{id_estudiante}/clase/{id_clase}",
+    response_model=AsistenciasRangoResponse,
+    summary="Consultar asistencias de un alumno en una clase por rango de fechas",
+    description="Retorna el resumen de asistencias (presente, ausente, justificante) de un alumno específico en una clase dentro de un rango de fechas"
+)
+async def get_asistencias_alumno_rango(
+    id_estudiante: int,
+    id_clase: int,
+    fecha_inicio: str = Query(..., description="Fecha inicial en formato YYYY-MM-DD (ej: 2025-08-04)"),
+    fecha_fin: str = Query(..., description="Fecha final en formato YYYY-MM-DD (ej: 2025-10-13)")
+):
+    """
+    Consulta las asistencias de un alumno en una clase específica dentro de un rango de fechas.
+    
+    **Parámetros:**
+    - id_estudiante: ID del estudiante
+    - id_clase: ID de la clase
+    - fecha_inicio: Fecha inicial del rango (formato: YYYY-MM-DD)
+    - fecha_fin: Fecha final del rango (formato: YYYY-MM-DD)
+    
+    **Retorna:**
+    - Resumen de asistencias (presente, ausente, justificante)
+    - Tasa de asistencia en porcentaje
+    - Detalles por fecha
+    """
+    try:
+        # 1️⃣ Validar que el estudiante existe y está activo
+        query_estudiante = """
+            SELECT e.id_estudiante, e.matricula, e.nombre, e.apellido, e.id_grupo
+            FROM estudiante e
+            WHERE e.id_estudiante = %s AND e.estado_actual = 'activo'
+        """
+        estudiante = await fetch_one(query_estudiante, (id_estudiante,))
+        
+        if not estudiante:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Estudiante con ID {id_estudiante} no encontrado o no está activo"
+            )
+        
+        # 2️⃣ Validar que la clase existe
+        query_clase = """
+            SELECT c.id_clase, c.nombre_clase, c.nrc, c.id_grupo
+            FROM clase c
+            WHERE c.id_clase = %s
+        """
+        clase = await fetch_one(query_clase, (id_clase,))
+        
+        if not clase:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Clase con ID {id_clase} no encontrada"
+            )
+        
+        # 3️⃣ Verificar que el estudiante pertenece al grupo de la clase
+        if estudiante['id_grupo'] != clase['id_grupo']:
+            raise HTTPException(
+                status_code=400,
+                detail="El estudiante no pertenece al grupo de esta clase"
+            )
+        
+        # 4️⃣ Validar formato de fechas y orden
+        try:
+            fecha_inicio_obj = date.fromisoformat(fecha_inicio)
+            fecha_fin_obj = date.fromisoformat(fecha_fin)
+            
+            if fecha_inicio_obj > fecha_fin_obj:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La fecha de inicio no puede ser posterior a la fecha de fin"
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de fecha inválido. Use el formato YYYY-MM-DD (ej: 2025-08-04)"
+            )
+        
+        # 5️⃣ Consultar asistencias del alumno en la clase dentro del rango
+        query_asistencias = """
+            SELECT 
+                a.id_asistencia,
+                a.fecha,
+                a.estado,
+                a.hora_entrada,
+                a.hora_salida
+            FROM asistencia a
+            WHERE a.id_estudiante = %s
+              AND a.id_clase = %s
+              AND a.fecha BETWEEN %s AND %s
+            ORDER BY a.fecha ASC
+        """
+        
+        asistencias = await fetch_all(
+            query_asistencias, 
+            (id_estudiante, id_clase, fecha_inicio, fecha_fin)
+        )
+        
+        # 6️⃣ Procesar los datos
+        total_asistencias = 0
+        total_faltas = 0
+        total_justificantes = 0
+        detalles = []
+        
+        for registro in asistencias:
+            estado = registro['estado']
+            
+            # Contar por tipo
+            if estado == 'presente':
+                total_asistencias += 1
+            elif estado == 'ausente':
+                total_faltas += 1
+            elif estado == 'justificante':
+                total_justificantes += 1
+            
+            # Agregar al detalle
+            detalles.append({
+                'fecha': registro['fecha'].strftime('%Y-%m-%d') if registro['fecha'] else None,
+                'estado': estado,
+                'hora_entrada': str(registro['hora_entrada']) if registro['hora_entrada'] else None,
+                'hora_salida': str(registro['hora_salida']) if registro['hora_salida'] else None
+            })
+        
+        # 7️⃣ Calcular totales y porcentajes
+        total_registros = len(asistencias)
+        
+        # Tasa de asistencia: asistencias / (asistencias + faltas)
+        # No contamos justificantes en el denominador
+        base_calculo = total_asistencias + total_faltas
+        tasa_asistencia = round((total_asistencias / base_calculo * 100), 2) if base_calculo > 0 else 0.0
+        
+        # 8️⃣ Construir respuesta
+        nombre_completo = f"{estudiante['nombre']} {estudiante['apellido']}"
+        
+        return AsistenciasRangoResponse(
+            id_estudiante=estudiante['id_estudiante'],
+            matricula=estudiante['matricula'],
+            nombre_completo=nombre_completo,
+            id_clase=clase['id_clase'],
+            nombre_clase=clase['nombre_clase'] or f"Clase {clase['nrc']}",
+            nrc=clase['nrc'],
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            total_asistencias=total_asistencias,
+            total_faltas=total_faltas,
+            total_justificantes=total_justificantes,
+            total_registros=total_registros,
+            tasa_asistencia=tasa_asistencia,
+            detalles=detalles
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al consultar asistencias: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+
+# ============================================
+# ENDPOINT AUXILIAR: GET /api/estadisticas/alumnos-clase/{id_clase}
+# ============================================
+
+@router.get(
+    "/alumnos-clase/{id_clase}",
+    summary="Obtener lista de alumnos de una clase",
+    description="Retorna la lista de alumnos activos que pertenecen al grupo de una clase específica"
+)
+async def get_alumnos_clase(id_clase: int):
+    """
+    Obtiene la lista de alumnos de una clase para mostrar en el BottomSheet.
+    
+    **Útil para:** Selector de alumnos en el frontend
+    """
+    try:
+        # 1️⃣ Verificar que la clase existe
+        query_clase = """
+            SELECT c.id_clase, c.id_grupo
+            FROM clase c
+            WHERE c.id_clase = %s
+        """
+        clase = await fetch_one(query_clase, (id_clase,))
+        
+        if not clase:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Clase con ID {id_clase} no encontrada"
+            )
+        
+        # 2️⃣ Obtener alumnos del grupo
+        query_alumnos = """
+            SELECT 
+                e.id_estudiante,
+                e.matricula,
+                e.nombre,
+                e.apellido,
+                e.no_lista,
+                CONCAT(e.nombre, ' ', e.apellido) as nombre_completo
+            FROM estudiante e
+            WHERE e.id_grupo = %s 
+              AND e.estado_actual = 'activo'
+            ORDER BY e.no_lista, e.apellido, e.nombre
+        """
+        alumnos = await fetch_all(query_alumnos, (clase['id_grupo'],))
+        
+        if not alumnos:
+            return {
+                "id_clase": id_clase,
+                "total_alumnos": 0,
+                "alumnos": []
+            }
+        
+        # 3️⃣ Formatear respuesta
+        alumnos_lista = [
+            {
+                "id_estudiante": alumno['id_estudiante'],
+                "matricula": alumno['matricula'],
+                "nombre": alumno['nombre'],
+                "apellido": alumno['apellido'],
+                "nombre_completo": alumno['nombre_completo'],
+                "no_lista": alumno['no_lista']
+            }
+            for alumno in alumnos
+        ]
+        
+        return {
+            "id_clase": id_clase,
+            "total_alumnos": len(alumnos_lista),
+            "alumnos": alumnos_lista
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al obtener alumnos de la clase: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+

@@ -5,8 +5,10 @@ from datetime import datetime, time
 from pydantic import BaseModel
 from typing import List, Optional
 from config.db import fetch_one, fetch_all, execute_query  # 👈 usamos tus helpers
+import logging
 
 router = APIRouter()
+logger = logging.getLogger("api_calificaciones")
 # ==================== MODELOS ====================
 class EstudianteBase(BaseModel):
     matricula: str
@@ -203,3 +205,86 @@ async def eliminar_estudiante(id_estudiante: int):
         "message": "Estudiante eliminado correctamente",
         "estudiante": estudiante
     }
+
+
+@router.post("/calificaciones/archivo")
+async def importar_calificaciones(file: UploadFile = File(...)):
+    """
+    Importa calificaciones de parciales desde un archivo Excel.
+    
+    Estructura esperada del Excel:
+    | matricula | nrc | parcial_1 | parcial_2 | ordinario |
+    |-----------|-----|-----------|-----------|-----------|
+    | 2021001   | 123 | 8.5       | 9.0       |           |
+    | 2021002   | 123 | 7.0       | 8.5       |           |
+    
+    - matricula: Matrícula del estudiante (obligatorio)
+    - nrc: NRC de la clase (obligatorio)
+    - parcial_1: Calificación del primer parcial (0-10, opcional)
+    - parcial_2: Calificación del segundo parcial (0-10, opcional)
+    - ordinario: Calificación del examen ordinario (0-10, opcional)
+    
+    Nota: Al menos una calificación debe estar presente.
+    """
+    try:
+        # ✅ Validar extensión de archivo
+        if not file.filename.endswith((".xlsx", ".xls")):
+            raise HTTPException(
+                status_code=400, 
+                detail="El archivo debe ser formato Excel (.xlsx o .xls)"
+            )
+
+        # Leer archivo
+        contents = await file.read()
+        await file.close()
+        datos = leer_excel(contents)
+
+        if not datos:
+            raise HTTPException(
+                status_code=400, 
+                detail="El archivo está vacío o no tiene datos válidos"
+            )
+
+        # Validar que tenga las columnas mínimas requeridas
+        columnas_requeridas = ["matricula", "nrc"]
+        columnas_calificaciones = ["parcial_1", "parcial_2", "ordinario"]
+        
+        primera_fila = datos[0] if datos else {}
+        columnas_presentes = list(primera_fila.keys())
+        
+        # Verificar columnas obligatorias
+        faltantes = [col for col in columnas_requeridas if col not in columnas_presentes]
+        if faltantes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Faltan columnas obligatorias en el Excel: {', '.join(faltantes)}"
+            )
+        
+        # Verificar que al menos una columna de calificación esté presente
+        tiene_calificaciones = any(col in columnas_presentes for col in columnas_calificaciones)
+        if not tiene_calificaciones:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El Excel debe contener al menos una columna de calificaciones: {', '.join(columnas_calificaciones)}"
+            )
+
+        # Procesar calificaciones
+        resultado = await ctrl.insertar_calificaciones(datos)
+        
+        return {
+            "message": "Calificaciones procesadas correctamente",
+            "calificaciones_insertadas": resultado["calificaciones_insertadas"],
+            "calificaciones_actualizadas": resultado["calificaciones_actualizadas"],
+            "total_procesadas": resultado["calificaciones_insertadas"] + resultado["calificaciones_actualizadas"],
+            "errores": resultado["errores"],
+            "total_errores": len(resultado["errores"])
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error importando calificaciones: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error al importar calificaciones: {str(e)}"
+        )

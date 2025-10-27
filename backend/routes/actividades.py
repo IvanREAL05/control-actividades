@@ -657,6 +657,8 @@ async def get_historial(id_clase: int):
     Retorna el historial de alumnos por clase con actividades,
     usando calificación real en lugar de valor_maximo.
     Incluye el tipo de actividad.
+    
+    🔥 CORREGIDO: Ahora solo trae actividades de la clase especificada.
     """
 
     try:
@@ -676,7 +678,7 @@ async def get_historial(id_clase: int):
         """
         actividadesClase = await fetch_all(actividades_query, (id_clase,))
 
-        # 3️⃣ Traer estudiantes con entregas y calificación real
+        # 3️⃣ 🔥 CORREGIDO: Filtrar actividades SOLO de esta clase
         estudiantes_query = """
             SELECT e.id_estudiante, e.nombre, e.apellido, e.matricula, e.no_lista,
                    e.correo, e.estado_actual, g.nombre AS grupo,
@@ -685,7 +687,7 @@ async def get_historial(id_clase: int):
                            'id_actividad', a.id_actividad,
                            'titulo', a.titulo,
                            'descripcion', a.descripcion,
-                           'tipo_actividad', a.tipo_actividad,      -- ✅ NUEVO
+                           'tipo_actividad', a.tipo_actividad,
                            'fecha_entrega', a.fecha_entrega,
                            'valor_maximo', a.valor_maximo,
                            'estado', ae.estado,
@@ -695,8 +697,9 @@ async def get_historial(id_clase: int):
                    ) AS actividades
             FROM estudiante e
             JOIN grupo g ON e.id_grupo = g.id_grupo
-            LEFT JOIN actividad_estudiante ae ON ae.id_estudiante = e.id_estudiante
-            LEFT JOIN actividad a ON a.id_actividad = ae.id_actividad AND a.id_clase = %s
+            LEFT JOIN actividad a ON a.id_clase = %s
+            LEFT JOIN actividad_estudiante ae ON ae.id_estudiante = e.id_estudiante 
+                                               AND ae.id_actividad = a.id_actividad
             WHERE e.id_grupo = %s
             GROUP BY e.id_estudiante, e.nombre, e.apellido, e.matricula,
                      e.no_lista, e.correo, e.estado_actual, g.nombre
@@ -713,11 +716,14 @@ async def get_historial(id_clase: int):
             if isinstance(actividades, str):
                 actividades = json.loads(actividades)
 
+            # 🔥 FILTRAR actividades NULL (cuando no hay entregas)
+            actividades_validas = [act for act in actividades if act.get("id_actividad") is not None]
+
             entregado = 0
             ponderacion = 0
 
-            for act in actividades:
-                if act["estado"] == "entregado":
+            for act in actividades_validas:
+                if act.get("estado") == "entregado":
                     entregado += 1
                     calificacion = act.get("calificacion")
                     valor_maximo = act.get("valor_maximo") or 0
@@ -732,7 +738,7 @@ async def get_historial(id_clase: int):
                 "correo": est["correo"],
                 "estado_actual": est["estado_actual"],
                 "grupo": est["grupo"],
-                "actividades": actividades,  # ahora incluye tipo_actividad
+                "actividades": actividades_validas,  # 🔥 Solo actividades válidas
                 "entregado": entregado,
                 "ponderacion": ponderacion
             })
