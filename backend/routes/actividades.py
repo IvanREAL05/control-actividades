@@ -47,10 +47,12 @@ async def listar_actividades():
                             detail="Error obteniendo actividades")
 
 #Crear actividad
+# Crear actividad - VERSIÓN INTEGRADA CON NOTIFICACIÓN
 @router.post("/")
 async def crear_actividad(data: ActividadCreate):
     """
     Crea una actividad y asigna automáticamente a todos los estudiantes del grupo con estado 'pendiente'.
+    NOTIFICA a todos los dashboards conectados para agregar nueva columna.
     """
     try:
         # Combinar fecha y hora de entrega
@@ -98,6 +100,35 @@ async def crear_actividad(data: ActividadCreate):
                     insert_actividad_estudiante,
                     (id_actividad, est["id_estudiante"], "pendiente", None, None)
                 )
+
+        # ✅ NUEVO: Obtener los datos completos de la actividad creada para notificar
+        query_actividad_creada = """
+            SELECT 
+                id_actividad,
+                titulo,
+                tipo_actividad,
+                fecha_entrega,
+                valor_maximo
+            FROM actividad
+            WHERE id_actividad = %s
+        """
+        actividad_creada = await fetch_one(query_actividad_creada, (id_actividad,))
+
+        # ✅ NUEVO: Notificar a todos los dashboards conectados - INTEGRADO COMO EN ENTREGA
+        evento_data = {
+            "tipo": "nueva_actividad",
+            "data": {
+                "id": actividad_creada['id_actividad'],
+                "nombre": actividad_creada['titulo'],
+                "tipo": actividad_creada['tipo_actividad'],
+                "fecha": str(actividad_creada['fecha_entrega']),
+                "valor": float(actividad_creada['valor_maximo'])
+            }
+        }
+        
+        # 📡 Notificar a todos los dashboards conectados a esta clase
+        await tabla_manager.broadcast(json.dumps(evento_data), id_clase=data.id_clase)
+        logger.info(f"📢 Nueva actividad notificada: clase {data.id_clase}, actividad {actividad_creada['id_actividad']}")
 
         return {
             "success": True,

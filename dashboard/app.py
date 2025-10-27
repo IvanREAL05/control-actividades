@@ -407,6 +407,25 @@ if st.session_state.get("login_exitoso"):
                 document.getElementById('total-estudiantes').textContent = total;
                 document.getElementById('total-presentes').textContent = presentes;
             }}
+
+            // ✅ AGREGAR ESTA NUEVA FUNCIÓN AQUÍ
+            function renderizarTablaCompleta() {{
+                // 1. Actualizar el header con las nuevas columnas
+                const thead = document.querySelector('thead tr');
+                let actividadesHeaders = '';
+                actividades.forEach(act => {{
+                    actividadesHeaders += `<th class="act-header">${{act.nombre}}</th>`;
+                }});
+                thead.innerHTML = `<th>Grupo</th><th>Nombre</th><th>Matrícula</th><th>Asistencia</th><th>Hora</th>${{actividadesHeaders}}`;
+                
+                // 2. Actualizar el contador de actividades en la barra superior
+                document.getElementById('total-actividades').textContent = actividades.length;
+                
+                // 3. Re-renderizar todas las filas
+                renderizarTabla();
+                
+                console.log('🔄 Tabla completa re-renderizada con', actividades.length, 'actividades');
+            }}
             
             renderizarTabla();
             
@@ -425,6 +444,7 @@ if st.session_state.get("login_exitoso"):
                 try {{
                     const mensaje = JSON.parse(event.data);
                     console.log("🧩 Tipo de mensaje:", mensaje.tipo, "→", mensaje.data);
+                    
                     if (mensaje.tipo === 'asistencia') {{
                         const est = estudiantesMap.get(mensaje.data.id_estudiante);
                         if (est) {{
@@ -433,7 +453,8 @@ if st.session_state.get("login_exitoso"):
                             console.log(`✅ Actualizando fila de ${{est.nombre_completo}} → ${{est.asistencia}}`);
                             renderizarTabla();
                         }}
-                    }} else if (mensaje.tipo === 'actividad') {{
+                    }}
+                    else if (mensaje.tipo === 'actividad') {{
                         for (let [id, est] of estudiantesMap) {{
                             if (est.matricula === mensaje.data.matricula) {{
                                 if (!est.actividades) est.actividades = {{}};
@@ -444,8 +465,26 @@ if st.session_state.get("login_exitoso"):
                             }}
                         }}
                     }}
+                    else if (mensaje.tipo === 'nueva_actividad') {{
+                        console.log("🆕 Nueva actividad detectada:", mensaje.data);
+                        
+                        actividades.push({{
+                            id: mensaje.data.id,
+                            nombre: mensaje.data.nombre,
+                            tipo: mensaje.data.tipo
+                        }});
+                        
+                        estudiantesMap.forEach((est) => {{
+                            if (!est.actividades) est.actividades = {{}};
+                            est.actividades[String(mensaje.data.id)] = 'pendiente';
+                        }});
+                        
+                        renderizarTablaCompleta();
+                        
+                        console.log(`✅ Nueva columna agregada: "${{mensaje.data.nombre}}" (ID: ${{mensaje.data.id}})`);
+                    }}
                 }} catch(e) {{
-                    console.error(e);
+                    console.error("❌ Error procesando mensaje WebSocket:", e);
                 }}
             }};
             
