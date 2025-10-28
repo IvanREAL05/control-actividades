@@ -6,7 +6,9 @@ from typing import AsyncGenerator
 import os
 import ssl
 
-ssl_ctx = ssl.create_default_context(cafile="C:\\Users\\ivan_\\ca.pem")
+ssl_ctx = ssl.create_default_context(
+    cafile=os.path.join(os.path.dirname(__file__), "ca.pem")
+)
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
