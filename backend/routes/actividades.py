@@ -237,6 +237,7 @@ async def obtener_actividades_por_clase(id_clase: int):
 class EntregaQRRequest(BaseModel):
     qr: str
     id_actividad: int
+    calificacion: Optional[int] = None  # ← AÑADIR ESTE CAMPO
 
 FERNET_KEY = os.getenv('FERNET_KEY')
 if not FERNET_KEY:
@@ -297,7 +298,6 @@ async def registrar_entrega(request: EntregaQRRequest):
             raise HTTPException(status_code=400, detail="La actividad no corresponde al grupo del estudiante")
 
         fecha_entrega_real = obtener_fecha_hora_cdmx_completa()
-        # Convertir ISO string a datetime si es necesario
         if isinstance(fecha_entrega_real, str):
             try:
                 fecha_entrega_real = datetime.fromisoformat(fecha_entrega_real)
@@ -311,23 +311,38 @@ async def registrar_entrega(request: EntregaQRRequest):
             (request.id_actividad, estudiante["id_estudiante"])
         )
 
-        # --- 📡 Datos que se enviarán al dashboard ---
-        # ✅ DESPUÉS (formato correcto):
-        evento_data = {
-            "tipo": "actividad",
-            "data": {
-                "matricula": matricula,
-                "id_actividad": request.id_actividad
-            }
-        }
-        # También añade logging para verificar
-        logger.info(f"📡 Enviando evento: {evento_data}")
+        # ✅ PREPARAR DATOS DEL EVENTO WEBSOCKET (ANTES de INSERT/UPDATE)
+        # Determinar calificación según el tipo
+        calificacion_asignada = actividad["valor_maximo"]
+        if actividad["tipo_actividad"] == "examen":
+            calificacion_asignada = None  # Se calificará manualmente
+        elif request.calificacion is not None:
+            calificacion_asignada = request.calificacion
+
+        logger.info(f"📡 Preparando evento WebSocket para {nombre_completo}")
 
         if entrega:
             if entrega["estado"] == "entregado":
-                # 🔸 Ya entregó antes → opcionalmente notificar igual
+                # 🔸 Ya entregó antes
+                evento_data = {
+                    "tipo": "entrega_duplicada",
+                    "data": {
+                        "id_actividad": request.id_actividad,
+                        "id_estudiante": estudiante["id_estudiante"],
+                        "matricula": matricula,
+                        "nombre": nombre_completo,
+                        "estado": "entregado",
+                        "mensaje": f"{nombre_completo} ya entregó esta {actividad['tipo_actividad']} anteriormente."
+                    }
+                }
+                logger.info(f"📡 Emitiendo evento duplicado: {evento_data}")
+                await manager.broadcast(json.dumps(evento_data))
                 await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
-                return {"success": True, "mensaje": f"{nombre_completo} ya entregó esta {actividad['tipo_actividad']} anteriormente."}
+                
+                return {
+                    "success": True, 
+                    "mensaje": f"{nombre_completo} ya entregó esta {actividad['tipo_actividad']} anteriormente."
+                }
 
             # 🔄 Actualizar entrega existente
             await execute_query(
@@ -336,36 +351,80 @@ async def registrar_entrega(request: EntregaQRRequest):
                 SET estado='entregado', fecha_entrega_real=%s, calificacion=%s
                 WHERE id_actividad=%s AND id_estudiante=%s
                 """,
-                (fecha_entrega_real, actividad["valor_maximo"], request.id_actividad, estudiante["id_estudiante"])
+                (fecha_entrega_real, calificacion_asignada, request.id_actividad, estudiante["id_estudiante"])
             )
 
-            # 📡 Emitir actualización a dashboards
+            # ✅ EVENTO WEBSOCKET MEJORADO
+            evento_data = {
+                "tipo": "entrega_actualizada",
+                "data": {
+                    "id_actividad": request.id_actividad,
+                    "id_estudiante": estudiante["id_estudiante"],
+                    "matricula": matricula,
+                    "nombre": nombre_completo,
+                    "estado": "entregado",
+                    "calificacion": calificacion_asignada,
+                    "fecha_entrega_real": fecha_entrega_real.isoformat() if isinstance(fecha_entrega_real, datetime) else str(fecha_entrega_real),
+                    "tipo_actividad": actividad["tipo_actividad"]
+                }
+            }
+            logger.info(f"📡 Emitiendo evento actualización: {evento_data}")
             await manager.broadcast(json.dumps(evento_data))
             await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
-            return {"success": True, "mensaje": f"{nombre_completo} actualizó su entrega de la {actividad['tipo_actividad']}"}
+            
+            return {
+                "success": True, 
+                "mensaje": f"{nombre_completo} actualizó su entrega de la {actividad['tipo_actividad']}"
+            }
 
         # 🆕 Nueva entrega
-# 🆕 Nueva entrega
         await execute_query(
             """
             INSERT INTO actividad_estudiante
             (id_actividad, id_estudiante, estado, fecha_entrega_real, calificacion)
             VALUES (%s, %s, 'entregado', %s, %s)
             """,
-            (request.id_actividad, estudiante["id_estudiante"], fecha_entrega_real, actividad["valor_maximo"])
+            (request.id_actividad, estudiante["id_estudiante"], fecha_entrega_real, calificacion_asignada)
         )
 
-        # 📡 Notificar nueva entrega
+        # ✅ EVENTO WEBSOCKET MEJORADO PARA NUEVA ENTREGA
+        evento_data = {
+            "tipo": "entrega_nueva",
+            "data": {
+                "id_actividad": request.id_actividad,
+                "id_estudiante": estudiante["id_estudiante"],
+                "matricula": matricula,
+                "nombre": nombre_completo,
+                "estado": "entregado",
+                "calificacion": calificacion_asignada,
+                "fecha_entrega_real": fecha_entrega_real.isoformat() if isinstance(fecha_entrega_real, datetime) else str(fecha_entrega_real),
+                "tipo_actividad": actividad["tipo_actividad"]
+            }
+        }
+        
+        logger.info(f"📡 Emitiendo evento nueva entrega: {evento_data}")
+        logger.info(f"   - id_actividad: {request.id_actividad}")
+        logger.info(f"   - id_estudiante: {estudiante['id_estudiante']}")
+        logger.info(f"   - nombre: {nombre_completo}")
+        logger.info(f"   - calificación: {calificacion_asignada}")
+        
         await manager.broadcast(json.dumps(evento_data))
         await tabla_manager.broadcast(json.dumps(evento_data), id_clase=actividad["id_clase"])
-        return {"success": True, "mensaje": f"{nombre_completo} entregó la {actividad['tipo_actividad']}"}
+        
+        logger.info(f"✅ Eventos WebSocket emitidos correctamente")
+        
+        return {
+            "success": True, 
+            "mensaje": f"{nombre_completo} entregó la {actividad['tipo_actividad']}"
+        }
     
     except InvalidToken:
         raise HTTPException(status_code=400, detail="QR inválido o expirado")
     except Exception as e:
-        logger.error(f"Error en registrar_entrega: {e}")
+        logger.error(f"❌ Error en registrar_entrega: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error en el servidor")
-
+    
+    
 # --- Obtener estudiantes por actividad ---
 @router.get("/estudiantes/{id_actividad}")
 async def obtener_estudiantes_por_actividad(id_actividad: int):

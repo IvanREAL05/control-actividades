@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from config.db import fetch_one, fetch_all, execute_query, get_pool
 import uuid
 import secrets
+import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
 from routes.ws_manager_auth import auth_manager
 
@@ -325,7 +326,7 @@ async def obtener_perfil(id_usuario: int):
 async def generar_sesion_qr():
     """
     Genera un session_id único para el QR del dashboard.
-    AHORA se guarda en la BD para persistencia.
+    Se guarda en la BD para persistencia.
     """
     try:
         # Generar ID único seguro
@@ -340,7 +341,7 @@ async def generar_sesion_qr():
         
         await execute_query(query, (session_id,))
         
-        logger.info(f"🔑 Nueva sesión QR generada y guardada en BD: {session_id}")
+        logger.info(f"🔑 Nueva sesión QR generada: {session_id}")
         
         return {
             "success": True,
@@ -360,11 +361,11 @@ async def generar_sesion_qr():
 async def websocket_auth(websocket: WebSocket, session_id: str):
     """
     WebSocket que el navegador mantiene abierto mientras espera login.
-    MEJORADO: Acepta primero, valida después
+    Acepta primero, valida después.
     """
     # ✅ PRIMERO aceptar la conexión
     await websocket.accept()
-    logger.info(f"🔌 WebSocket aceptado para sesión: {session_id}")
+    logger.info(f"🔌 WebSocket aceptado: {session_id}")
     
     try:
         # Verificar que la sesión existe en BD
@@ -377,7 +378,7 @@ async def websocket_auth(websocket: WebSocket, session_id: str):
         sesion = await fetch_one(query, (session_id,))
         
         if not sesion:
-            logger.warning(f"⚠️ Sesión no encontrada en BD: {session_id}")
+            logger.warning(f"⚠️ Sesión no encontrada: {session_id}")
             await websocket.send_json({
                 "type": "error",
                 "message": "Sesión no encontrada. Recarga la página."
@@ -436,7 +437,7 @@ async def websocket_auth(websocket: WebSocket, session_id: str):
 async def confirmar_sesion(request: ConfirmarSesionRequest):
     """
     Endpoint que llama la APP MÓVIL después de escanear el QR.
-    MEJORADO: Con validación de BD y renovación automática
+    Con validación de BD y manejo de duplicados.
     """
     session_id = request.session_id
     id_profesor = request.id_profesor
@@ -463,28 +464,21 @@ async def confirmar_sesion(request: ConfirmarSesionRequest):
             )
         
         # 2️⃣ Verificar estado
-        if sesion['estado'] != 'pendiente':
-            logger.warning(f"⚠️ Sesión ya {sesion['estado']}: {session_id}")
+        if sesion['estado'] == 'confirmado':
+            logger.warning(f"⚠️ Sesión ya confirmada: {session_id}")
             raise HTTPException(
                 status_code=409,
-                detail=f"Sesión ya fue {sesion['estado']}"
+                detail="Sesión ya fue confirmada"
             )
         
-        # 3️⃣ RENOVAR si expiró (esto es clave!)
+        # 3️⃣ Verificar expiración (SIN renovar - crear nueva)
         ahora = datetime.now()
         if sesion['fecha_expiracion'] < ahora:
-            logger.warning(f"⚠️ Sesión expirada, RENOVANDO: {session_id}")
-            
-            nueva_expiracion = ahora + timedelta(minutes=5)
-            
-            query_renovar = """
-                UPDATE sesiones_dashboard
-                SET fecha_expiracion = %s
-                WHERE session_id = %s
-            """
-            
-            await execute_query(query_renovar, (nueva_expiracion, session_id))
-            logger.info(f"✅ Sesión renovada hasta: {nueva_expiracion}")
+            logger.warning(f"⚠️ Sesión expirada: {session_id}")
+            raise HTTPException(
+                status_code=410,
+                detail="Sesión expirada. Genera un nuevo QR"
+            )
         
         # 4️⃣ Validar clase del profesor
         query_clase = """
@@ -569,6 +563,7 @@ async def confirmar_sesion(request: ConfirmarSesionRequest):
             status_code=500,
             detail=f"Error interno: {str(e)}"
         )
+    
 
 @router.get("/auth/sesiones-activas")
 async def obtener_sesiones_activas():
@@ -602,3 +597,33 @@ async def obtener_sesiones_activas():
     except Exception as e:
         logger.error(f"Error obteniendo sesiones: {e}")
         raise HTTPException(status_code=500, detail="Error interno")
+    
+
+
+async def limpiar_sesiones_expiradas():
+    """
+    Tarea en background que limpia sesiones expiradas cada minuto
+    """
+    while True:
+        try:
+            await asyncio.sleep(60)  # Cada 60 segundos
+            
+            query = """
+                DELETE FROM sesiones_dashboard
+                WHERE fecha_expiracion < NOW()
+                AND estado = 'pendiente'
+            """
+            
+            resultado = await execute_query(query)
+            
+            if resultado:
+                logger.info(f"🗑️ Sesiones expiradas eliminadas")
+                
+        except Exception as e:
+            logger.error(f"❌ Error limpiando sesiones: {e}")
+
+@router.on_event("startup")
+async def iniciar_limpieza():
+    """Iniciar tarea de limpieza al arrancar el servidor"""
+    asyncio.create_task(limpiar_sesiones_expiradas())
+    logger.info("✅ Limpiador de sesiones iniciado")
