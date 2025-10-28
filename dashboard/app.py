@@ -12,9 +12,9 @@ import json
 # ============================================
 # CONFIGURACIÓN DE IPs
 # ============================================
-BACKEND_IP = "192.168.100.11"  # PC donde corre FastAPI
+BACKEND_IP = "10.31.231.252"  # PC donde corre FastAPI
 BACKEND_PORT = "8000"
-FRONTEND_IP = "192.168.100.11"  # PC donde corre Streamlit
+FRONTEND_IP = "10.31.226.140"  # PC donde corre Streamlit
 FRONTEND_PORT = "8501"
 
 st.set_page_config(
@@ -65,7 +65,7 @@ if st.session_state.get("login_exitoso"):
         try:
             response = requests.get(
                 f"http://{BACKEND_IP}:{BACKEND_PORT}/api/tabla/{id_clase}/datos",
-                timeout=15
+                timeout=5
             )
             if response.status_code == 200:
                 return response.json()
@@ -454,20 +454,19 @@ if st.session_state.get("login_exitoso"):
                             renderizarTabla();
                         }}
                     }}
-                    // ✅ MEJORADO: Manejar múltiples tipos de eventos de actividad
-                    else if (mensaje.tipo === 'actividad' || mensaje.tipo === 'entrega_nueva' || mensaje.tipo === 'entrega_actualizada') {{
-                        const matricula = mensaje.data.matricula;
-                        const idActividad = mensaje.data.id_actividad;
-                        
-                        for (let [id, est] of estudiantesMap) {{
-                            if (est.matricula === matricula) {{
-                                if (!est.actividades) est.actividades = {{}};
-                                est.actividades[String(idActividad)] = 'entregado';
-                                console.log(`📘 Actividad entregada para ${{est.nombre_completo}} (tipo: ${{mensaje.tipo}})`);
-                                renderizarTabla();
-                                break;
-                            }}
+                    else if (mensaje.tipo === 'entrega_actualizada') {{
+                        const est = estudiantesMap.get(mensaje.data.id_estudiante);
+                        if (est) {{
+                            if (!est.actividades) est.actividades = {{}};
+                            est.actividades[String(mensaje.data.id_actividad)] = mensaje.data.estado;
+                            console.log(`📘 Actividad ${{mensaje.data.id_actividad}} actualizada para ${{est.nombre_completo}} → ${{mensaje.data.estado}}`);
+                            renderizarTabla();
                         }}
+                    }}
+                            // También manejar entregas duplicadas (aunque no cambie nada)
+                    else if (mensaje.tipo === 'entrega_duplicada') {{
+                        console.log(`⚠️ ${{mensaje.data.mensaje}}`);
+                        // No necesita re-renderizar, ya está entregado
                     }}
                     else if (mensaje.tipo === 'nueva_actividad') {{
                         console.log("🆕 Nueva actividad detectada:", mensaje.data);
@@ -531,19 +530,16 @@ def generar_sesion_qr():
         )
         if response.status_code == 200:
             data = response.json()
-            return data["session_id"], data["expires_in"] - 30 
+            return data["session_id"], data["expires_in"]
     except:
         pass
     return None, None
 
-# ✅ MEJORADO: Regenerar QR cuando expire o no exista
-if "session_id" not in st.session_state or st.session_state.session_id is None or st.session_state.get("qr_expirado", False):
+if "session_id" not in st.session_state or st.session_state.session_id is None:
     session_id, expires_in = generar_sesion_qr()
     if session_id:
         st.session_state.session_id = session_id
         st.session_state.expires_at = time.time() + expires_in
-        st.session_state.qr_expirado = False  # ⬅️ NUEVO
-        
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(session_id)
         qr.make(fit=True)
@@ -551,16 +547,14 @@ if "session_id" not in st.session_state or st.session_state.session_id is None o
         st.session_state.qr_image = np.array(img.convert('RGB'))
     else:
         st.error("❌ Error conectando con el servidor")
-        if st.button("🔄 Reintentar"):  # ⬅️ NUEVO
-            st.rerun()
         st.stop()
 
 tiempo_restante = int(st.session_state.expires_at - time.time())
 if tiempo_restante <= 0:
-    st.session_state.qr_expirado = True  # ⬅️ NUEVO: marcar como expirado
     st.warning("⏱️ Código QR expirado")
     if st.button("🔄 Generar Nuevo Código"):
-        st.rerun()  # ⬅️ Ya no necesitas limpiar session_id manualmente
+        st.session_state.session_id = None
+        st.rerun()
     st.stop()
 
 session_id = st.session_state.session_id
