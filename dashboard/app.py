@@ -12,8 +12,7 @@ import json
 # ============================================
 # CONFIGURACIÓN DE IPs
 # ============================================
-BACKEND_IP = "10.31.231.252"  # PC donde corre FastAPI
-BACKEND_PORT = "8000"
+BACKEND_URL = "https://control-actividades.onrender.com"
 FRONTEND_IP = "10.31.226.140"  # PC donde corre Streamlit
 FRONTEND_PORT = "8501"
 
@@ -64,7 +63,7 @@ if st.session_state.get("login_exitoso"):
     def obtener_datos_iniciales(id_clase):
         try:
             response = requests.get(
-                f"http://{BACKEND_IP}:{BACKEND_PORT}/api/tabla/{id_clase}/datos",
+                f"{BACKEND_URL}/api/tabla/{id_clase}/datos",
                 timeout=5
             )
             if response.status_code == 200:
@@ -429,7 +428,7 @@ if st.session_state.get("login_exitoso"):
             
             renderizarTabla();
             
-            let ws = new WebSocket('ws://{BACKEND_IP}:{BACKEND_PORT}/ws/tabla/{id_clase}');
+            let ws = new WebSocket('wss://control-actividades.onrender.com/ws/tabla/{id_clase}');
             console.log("📡 Intentando conectar WebSocket...");
             const wsStatus = document.getElementById('ws-status');
             
@@ -525,7 +524,7 @@ def generar_sesion_qr():
     """Generar session_id"""
     try:
         response = requests.post(
-            f"http://{BACKEND_IP}:{BACKEND_PORT}/api/login/auth/generar-sesion-qr",
+            f"{BACKEND_URL}/api/login/auth/generar-sesion-qr",
             timeout=5
         )
         if response.status_code == 200:
@@ -739,7 +738,7 @@ html_content = f"""
         </div>
     </div>
     <script>
-        const ws = new WebSocket('ws://{BACKEND_IP}:{BACKEND_PORT}/ws/login/auth/{session_id}');
+        const ws = new WebSocket('wss://control-actividades.onrender.com/ws/login/auth/{session_id}');
         const statusEl = document.getElementById('status');
         const timerEl = document.getElementById('timer');
         let tiempoRestante = {tiempo_restante};
