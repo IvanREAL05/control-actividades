@@ -12,7 +12,7 @@ import base64
 
 
 
-API_BASE_URL = "http://localhost:8000/api/"
+API_BASE_URL = "https://control-actividades.onrender.com/api/"
 # CSS personalizado para el tema azul y blanco
 st.markdown("""
 <style>
@@ -321,7 +321,7 @@ st.markdown("<hr>", unsafe_allow_html=True)
 
 # 1. Obtener clases del día desde el backend
 try:
-    res_clases = requests.get("http://localhost:8000/api/clases/hoy/todas")
+    res_clases = requests.get("https://control-actividades.onrender.com/api/clases/hoy/todas")
     res_clases.raise_for_status()
     clases = res_clases.json()
 except Exception as e:
@@ -655,7 +655,7 @@ if id_clase:
 
         try:
             # Llamada al endpoint para alumnos del grupo
-            res_alumnos = requests.get(f"http://localhost:8000/api/estudiantes/grupo/{id_grupo}")
+            res_alumnos = requests.get(f"https://control-actividades.onrender.com/api/estudiantes/grupo/{id_grupo}")
             res_alumnos.raise_for_status()
             alumnos = res_alumnos.json()  # Se espera una lista de alumnos
         except Exception as e:

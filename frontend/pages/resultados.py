@@ -117,7 +117,7 @@ st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 def load_initial_data():
     """Carga los datos iniciales desde el backend"""
     try:
-        resp = requests.get("http://localhost:8000/api/clases/hoy", timeout=5)
+        resp = requests.get("https://control-actividades.onrender.com/api/clases/hoy", timeout=5)
         resp.raise_for_status()
         clases = resp.json()
         
@@ -132,7 +132,7 @@ clases_data = load_initial_data()
 
 if not clases_data or len(clases_data) == 0:
     st.warning("⚠️ No hay clases programadas para hoy o no se pudo conectar al backend")
-    st.info("🔍 Verifica que el backend esté corriendo en http://localhost:8000")
+    st.info("🔍 Verifica que el backend esté corriendo en https://control-actividades.onrender.com")
     st.stop()
 
 # ===============================
@@ -641,7 +641,7 @@ function connectWebSocket() {{
     console.log('🔄 Intentando conectar WebSocket...');
     
     try {{
-        ws = new WebSocket('ws://localhost:8000/api/clases/ws/attendances');
+        ws = new WebSocket('wss://control-actividades.onrender.com/api/clases/ws/attendances');
         
         ws.onopen = function() {{
             console.log('🟢 WebSocket conectado correctamente');

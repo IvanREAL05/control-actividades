@@ -221,7 +221,7 @@ with st.form("form_aviso"):
                 }
 
                 # Cambia si el backend está en otra dirección
-                backend_url = "http://localhost:8000/api/avisos/"
+                backend_url = "https://control-actividades.onrender.com/api/avisos/"
                 response = requests.post(backend_url, json=aviso_data)
 
                 if response.status_code == 200:

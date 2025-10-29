@@ -317,8 +317,9 @@ st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
 st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 # URL del backend actualizada
-API_URL = "http://localhost:8000/api/clases/por-bloque" 
-DEBUG_URL = "http://localhost:8000/api/clases/debug-dia"
+API_URL = "https://control-actividades.onrender.com/api/clases/por-bloque" 
+DEBUG_URL = "https://control-actividades.onrender.com/api/clases/debug-dia"
+
 
 
 

@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-API_URL = "http://localhost:8000/api/login"
+API_URL = "https://control-actividades.onrender.com/api/login"
 
 st.set_page_config(page_title="Login", page_icon="🔐", initial_sidebar_state="collapsed")
 

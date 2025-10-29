@@ -118,8 +118,8 @@ with col_back2:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ---------- CONFIGURACIÓN API ----------
-API_BASE = "http://localhost:8000/api/reportes"
-API_HELPERS = "http://localhost:8000/api/helpers"
+API_BASE = "https://control-actividades.onrender.com/api/reportes"
+API_HELPERS = "https://control-actividades.onrender.com/api/helpers"
 
 # ---------- FUNCIONES AUXILIARES ----------
 @st.cache_data(ttl=300)

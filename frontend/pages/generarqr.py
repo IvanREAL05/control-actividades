@@ -135,7 +135,7 @@ with col_gen:
             st.session_state.error = "⚠️ Por favor, ingrese una matrícula válida."
         else:
             try:
-                url = f"http://localhost:8000/api/qr/por-matricula/{matricula_clean}"
+                url = f"https://control-actividades.onrender.com/api/qr/por-matricula/{matricula_clean}"
                 response = requests.get(url)
 
                 if response.status_code == 200:

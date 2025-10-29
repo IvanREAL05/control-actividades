@@ -153,9 +153,9 @@ st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
 st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 # Rutas de la API
-API_BASE = "http://localhost:8000/api/importar"
-API_ESTUDIANTES = "http://localhost:8000/api/importar"
-API_GRUPOS = "http://localhost:8000/api/grupos/lista"
+API_BASE = "https://control-actividades.onrender.com/api/importar"
+API_ESTUDIANTES = "https://control-actividades.onrender.com/api/importar"
+API_GRUPOS = "https://control-actividades.onrender.com/api/grupos/lista"
 
 # ---------- ESTADOS INICIALES ----------
 if 'tipo_datos' not in st.session_state:
