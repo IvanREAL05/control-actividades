@@ -8,6 +8,22 @@ import plotly.io as pio
 import uuid
 import streamlit.components.v1 as components
 import base64
+from pathlib import Path
+
+# ✅ Obtener rutas correctas de las imágenes
+# Como estamos en pages/, subimos un nivel para llegar a frontend/
+BASE_DIR = Path(__file__).parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
+
+# Función helper para cargar imágenes
+def load_image_base64(image_name):
+    try:
+        image_path = ASSETS_DIR / image_name
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        st.warning(f"⚠️ Imagen {image_name} no encontrada")
+        return ""
 
 
 
@@ -281,10 +297,9 @@ st.markdown("""
     </div>
 </div>
 """.format(
-    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
-    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+    load_image_base64("logo_buap.jpg"),
+    load_image_base64("logo1.jpeg")
 ), unsafe_allow_html=True)
-
 
 # Información del usuario y botón de cerrar sesión
 col_user, col_btn = st.columns([4, 1])

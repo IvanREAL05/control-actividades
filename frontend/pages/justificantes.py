@@ -1,6 +1,19 @@
 import streamlit as st
 import base64
 from datetime import datetime
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
+
+def load_image_base64(image_name):
+    try:
+        image_path = ASSETS_DIR / image_name
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        st.warning(f"⚠️ Imagen {image_name} no encontrada")
+        return ""
 
 # ---------- CONFIGURACIÓN DE PÁGINA ----------
 st.set_page_config(
@@ -86,8 +99,8 @@ st.markdown("""
     </div>
 </div>
 """.format(
-    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
-    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+    load_image_base64("logo_buap.jpg"),
+    load_image_base64("logo1.jpeg")
 ), unsafe_allow_html=True)
 
 # ---------- BOTÓN DE VOLVER ----------

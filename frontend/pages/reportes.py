@@ -2,6 +2,19 @@ import streamlit as st
 import requests
 import base64
 from datetime import datetime, date
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
+
+def load_image_base64(image_name):
+    try:
+        image_path = ASSETS_DIR / image_name
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        st.warning(f"⚠️ Imagen {image_name} no encontrada")
+        return ""
 
 # ---------- CONFIGURACIÓN DE LA PÁGINA ----------
 st.set_page_config(
@@ -92,12 +105,8 @@ st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
 st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 # ---------- ENCABEZADO ----------
-try:
-    logo1 = base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode()
-    logo2 = base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
-except FileNotFoundError:
-    st.warning("⚠️ Logos no encontrados en 'assets/'. Asegúrate de tener los archivos.")
-    logo1 = logo2 = ""
+logo1 = load_image_base64("logo_buap.jpg")
+logo2 = load_image_base64("logo1.jpeg")
 
 st.markdown(f"""
 <div class="custom-header">

@@ -8,6 +8,19 @@ import base64
 import requests
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
+
+def load_image_base64(image_name):
+    try:
+        image_path = ASSETS_DIR / image_name
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        st.warning(f"⚠️ Imagen {image_name} no encontrada")
+        return ""
 
 st.set_page_config(page_title="Resultados en Tiempo Real", layout="wide")
 
@@ -74,8 +87,8 @@ st.markdown(f"""
             margin-bottom: 35px;
             box-shadow: 0 8px 25px rgba(30, 64, 175, 0.35);">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap;">
-        <img src="data:image/jpeg;base64,{base64.b64encode(open('assets/logo_buap.jpg','rb').read()).decode()}" 
-             height="75" style="border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+        <img src="data:image/jpeg;base64,{load_image_base64('logo_buap.jpg')}" 
+            height="75" style="border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
         <div style="flex: 1; text-align: center; padding: 0 25px;">
             <h1 style="color: white; margin: 0; font-size: 32px; font-weight: 700; 
                        text-shadow: 2px 2px 4px rgba(0,0,0,0.2); font-family: 'Quicksand', sans-serif;">
@@ -86,8 +99,8 @@ st.markdown(f"""
                 📊 Asistencias en Tiempo Real
             </p>
         </div>
-        <img src="data:image/jpeg;base64,{base64.b64encode(open('assets/logo1.jpeg','rb').read()).decode()}" 
-             height="75" style="border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+        <img src="data:image/jpeg;base64,{load_image_base64('logo1.jpeg')}" 
+            height="75" style="border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
     </div>
 </div>
 """, unsafe_allow_html=True)

@@ -3,6 +3,19 @@ from datetime import datetime
 import pandas as pd
 import requests
 import base64
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
+
+def load_image_base64(image_name):
+    try:
+        image_path = ASSETS_DIR / image_name
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        st.warning(f"⚠️ Imagen {image_name} no encontrada")
+        return ""
 
 # Configuración de la página
 st.set_page_config(
@@ -176,12 +189,12 @@ columnas_esperadas = {
 }
 
 imagenes_referencia = {
-    "estudiantes": "assets/tabla-estudiante.png",
-    "profesores": "assets/tabla-profesor.png",
-    "grupos": "assets/tabla-grupo.png",
-    "clases": "assets/tabla-clase.png",
-    "materias": "assets/tabla-materia.png",
-    "calificaciones": "assets/tabla-calificaciones.png"
+    "estudiantes": str(ASSETS_DIR / "tabla-estudiante.png"),
+    "profesores": str(ASSETS_DIR / "tabla-profesor.png"),
+    "grupos": str(ASSETS_DIR / "tabla-grupo.png"),
+    "clases": str(ASSETS_DIR / "tabla-clase.png"),
+    "materias": str(ASSETS_DIR / "tabla-materia.png"),
+    "calificaciones": str(ASSETS_DIR / "tabla-calificaciones.png")
 }
 
 # ---------- FUNCIONES AUXILIARES ----------
@@ -282,8 +295,8 @@ st.markdown("""
     </div>
 </div>
 """.format(
-    base64.b64encode(open("assets/logo_buap.jpg", "rb").read()).decode(),
-    base64.b64encode(open("assets/logo1.jpeg", "rb").read()).decode()
+    load_image_base64("logo_buap.jpg"),
+    load_image_base64("logo1.jpeg")
 ), unsafe_allow_html=True)
 
 # Botón de volver al panel
