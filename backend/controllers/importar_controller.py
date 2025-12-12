@@ -525,7 +525,7 @@ async def insertar_clases(clases):
 
 
 
-async def insertar_calificaciones(calificaciones_data):
+'''async def insertar_calificaciones(calificaciones_data):
     """
     Inserta o actualiza calificaciones de parciales desde Excel.
     
@@ -689,6 +689,170 @@ async def insertar_calificaciones(calificaciones_data):
         logger.warning(f"Se encontraron {len(errores)} errores durante el proceso")
         for error in errores[:10]:  # Mostrar solo los primeros 10 errores
             logger.warning(f"  - {error}")
+    
+    return {
+        "calificaciones_insertadas": calificaciones_insertadas,
+        "calificaciones_actualizadas": calificaciones_actualizadas,
+        "errores": errores
+    }'''
+
+# --------------------------
+# Calificaciones
+# --------------------------
+async def insertar_calificaciones(calificaciones_data):
+    """
+    Inserta o actualiza calificaciones de parciales desde Excel.
+    Columnas requeridas: matricula, nrc
+    Columnas opcionales: parcial_1, parcial_2, ordinario (al menos una debe estar presente)
+    """
+    calificaciones_insertadas = 0
+    calificaciones_actualizadas = 0
+    errores = []
+    
+    logger.info(f"📊 Iniciando procesamiento de {len(calificaciones_data)} filas de calificaciones")
+    
+    for i, registro in enumerate(calificaciones_data, start=1):
+        try:
+            # Extraer y limpiar datos
+            matricula = str(registro.get("matricula", "")).strip()
+            nrc = str(registro.get("nrc", "")).strip()
+            
+            # Validar datos obligatorios
+            if not matricula or not nrc:
+                logger.warning(f"Fila {i}: Datos obligatorios incompletos")
+                errores.append(f"Fila {i}: Faltan matrícula o NRC")
+                continue
+            
+            # Extraer calificaciones
+            parcial_1_raw = registro.get("parcial_1")
+            parcial_2_raw = registro.get("parcial_2")
+            ordinario_raw = registro.get("ordinario")
+            
+            # Función helper para validar y convertir calificaciones
+            def validar_calificacion(valor, nombre_campo):
+                """Valida que la calificación esté entre 0 y 10, o sea None/vacía"""
+                if valor is None or valor == "" or str(valor).strip() == "":
+                    return None
+                
+                try:
+                    calif = float(valor)
+                    if calif < 0 or calif > 10:
+                        raise ValueError(f"{nombre_campo} debe estar entre 0 y 10")
+                    return int(calif) if calif == int(calif) else calif
+                except (ValueError, TypeError):
+                    raise ValueError(f"{nombre_campo} inválida: '{valor}'")
+            
+            # Validar y convertir calificaciones
+            try:
+                parcial_1 = validar_calificacion(parcial_1_raw, "parcial_1")
+                parcial_2 = validar_calificacion(parcial_2_raw, "parcial_2")
+                ordinario = validar_calificacion(ordinario_raw, "ordinario")
+            except ValueError as ve:
+                logger.warning(f"Fila {i}: {str(ve)}")
+                errores.append(f"Fila {i}: {str(ve)}")
+                continue
+            
+            # Verificar que al menos una calificación esté presente
+            if parcial_1 is None and parcial_2 is None and ordinario is None:
+                logger.warning(f"Fila {i}: No hay calificaciones para {matricula}")
+                errores.append(f"Fila {i}: Sin calificaciones para {matricula}")
+                continue
+            
+            # Buscar estudiante por matrícula
+            estudiante = await fetch_one(
+                "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula = %s",
+                [matricula]
+            )
+            if not estudiante:
+                logger.warning(f"Fila {i}: Estudiante no encontrado: {matricula}")
+                errores.append(f"Fila {i}: Estudiante '{matricula}' no encontrado. Importe estudiantes primero.")
+                continue
+            
+            id_estudiante = estudiante["id_estudiante"]
+            id_grupo_estudiante = estudiante["id_grupo"]
+            
+            # Buscar clase por NRC
+            clase = await fetch_one(
+                "SELECT id_clase, id_grupo FROM clase WHERE nrc = %s",
+                [nrc]
+            )
+            if not clase:
+                logger.warning(f"Fila {i}: Clase no encontrada: NRC {nrc}")
+                errores.append(f"Fila {i}: Clase con NRC '{nrc}' no encontrada. Importe clases primero.")
+                continue
+            
+            id_clase = clase["id_clase"]
+            id_grupo_clase = clase["id_grupo"]
+            
+            # Verificar que el estudiante pertenece al grupo de la clase
+            if id_grupo_estudiante != id_grupo_clase:
+                logger.warning(f"Fila {i}: Estudiante {matricula} no está en el grupo de NRC {nrc}")
+                errores.append(f"Fila {i}: Estudiante {matricula} no pertenece al grupo correcto")
+                continue
+            
+            # Obtener fecha actual
+            fecha_actual = obtener_fecha_hora_cdmx_completa()
+            
+            # Procesar cada tipo de calificación
+            tipos_calificacion = [
+                ("parcial_1", parcial_1),
+                ("parcial_2", parcial_2),
+                ("ordinario", ordinario)
+            ]
+            
+            for tipo_parcial, calificacion in tipos_calificacion:
+                if calificacion is None:
+                    continue
+                
+                try:
+                    # Verificar si ya existe la calificación
+                    calif_existente = await fetch_one(
+                        """
+                        SELECT id_calificacion_parcial 
+                        FROM calificacion_parcial
+                        WHERE id_estudiante = %s AND id_clase = %s AND parcial = %s
+                        """,
+                        [id_estudiante, id_clase, tipo_parcial]
+                    )
+                    
+                    if calif_existente:
+                        # Actualizar calificación existente
+                        await execute_query(
+                            """
+                            UPDATE calificacion_parcial
+                            SET calificacion = %s, fuente = 'excel', fecha_registro = %s
+                            WHERE id_calificacion_parcial = %s
+                            """,
+                            [calificacion, fecha_actual, calif_existente["id_calificacion_parcial"]]
+                        )
+                        calificaciones_actualizadas += 1
+                        logger.info(f"✅ Actualizada {tipo_parcial} para {matricula}: {calificacion}")
+                    else:
+                        # Insertar nueva calificación
+                        await execute_query(
+                            """
+                            INSERT INTO calificacion_parcial 
+                            (id_estudiante, id_clase, parcial, calificacion, fecha_registro, fuente)
+                            VALUES (%s, %s, %s, %s, %s, 'excel')
+                            """,
+                            [id_estudiante, id_clase, tipo_parcial, calificacion, fecha_actual]
+                        )
+                        calificaciones_insertadas += 1
+                        logger.info(f"✅ Insertada {tipo_parcial} para {matricula}: {calificacion}")
+                        
+                except Exception as e:
+                    error_msg = f"Error procesando {tipo_parcial}: {str(e)}"
+                    logger.error(error_msg)
+                    errores.append(f"Fila {i}: {error_msg}")
+            
+        except Exception as e:
+            error_msg = f"Error en fila {i}: {str(e)}"
+            logger.error(error_msg)
+            errores.append(error_msg)
+    
+    logger.info(f"📊 Resumen Calificaciones: {calificaciones_insertadas} insertadas, {calificaciones_actualizadas} actualizadas")
+    if errores:
+        logger.warning(f"⚠️ {len(errores)} errores encontrados")
     
     return {
         "calificaciones_insertadas": calificaciones_insertadas,

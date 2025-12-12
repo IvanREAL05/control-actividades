@@ -56,7 +56,7 @@ async def importar_archivo(tipo: str, file: UploadFile = File(...)):
     """
     try:
         # Validar tipo
-        tipos_validos = ["estudiantes", "profesores", "grupos", "clases", "materias"]
+        tipos_validos = ["estudiantes", "profesores", "grupos", "clases", "materias", "calificaciones"]
         if tipo not in tipos_validos:
             raise HTTPException(
                 status_code=400, 
@@ -85,6 +85,29 @@ async def importar_archivo(tipo: str, file: UploadFile = File(...)):
             )
 
         logger.info(f"📊 {len(datos)} filas encontradas en el archivo")
+        # ✅ VALIDACIÓN ESPECIAL PARA CALIFICACIONES
+        if tipo == "calificaciones":
+            columnas_requeridas = ["matricula", "nrc"]
+            columnas_calificaciones = ["parcial_1", "parcial_2", "ordinario"]
+            
+            primera_fila = datos[0] if datos else {}
+            columnas_presentes = list(primera_fila.keys())
+            
+            # Verificar columnas obligatorias
+            faltantes = [col for col in columnas_requeridas if col not in columnas_presentes]
+            if faltantes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Faltan columnas obligatorias: {', '.join(faltantes)}"
+                )
+            
+            # Verificar que al menos una columna de calificación esté presente
+            tiene_calificaciones = any(col in columnas_presentes for col in columnas_calificaciones)
+            if not tiene_calificaciones:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Debe incluir al menos una columna de calificaciones: {', '.join(columnas_calificaciones)}"
+                )
 
         # Procesar según el tipo
         resultado = {}
@@ -103,6 +126,9 @@ async def importar_archivo(tipo: str, file: UploadFile = File(...)):
             
         elif tipo == "clases":
             resultado = await ctrl.insertar_clases(datos)
+        
+        elif tipo == "calificaciones":  
+            resultado = await ctrl.insertar_calificaciones(datos)
 
         # Construir respuesta
         response = {
@@ -137,6 +163,11 @@ async def importar_archivo(tipo: str, file: UploadFile = File(...)):
             logger.info(
                 f"✅ Clases: {resultado.get('clases_insertadas', 0)} insertadas, "
                 f"{resultado.get('horarios_insertados', 0)} horarios creados"
+            )
+        elif tipo == "calificaciones":  # ✅ AGREGADO
+            logger.info(
+                f"✅ Calificaciones: {resultado.get('calificaciones_insertadas', 0)} insertadas, "
+                f"{resultado.get('calificaciones_actualizadas', 0)} actualizadas"
             )
 
         # Si hay errores, incluirlos en la respuesta
@@ -185,6 +216,10 @@ async def obtener_tipos_disponibles():
             "clases": {
                 "columnas": ["nombre_clase", "materia", "profesor", "grupo", "dia", "hora_inicio", "hora_fin", "nrc"],
                 "descripcion": "Importar clases y sus horarios (requiere que profesores, materias y grupos ya existan)"
+            },
+            "calificaciones": { 
+                "columnas": ["matricula", "nrc", "parcial_1", "parcial_2", "ordinario"],
+                "descripcion": "Importar calificaciones de parciales (al menos una calificación debe estar presente)"
             }
         },
         "orden_recomendado": [
@@ -192,7 +227,8 @@ async def obtener_tipos_disponibles():
             "2. Materias", 
             "3. Grupos",
             "4. Estudiantes",
-            "5. Clases"
+            "5. Clases",
+            "6. Calificaciones" 
         ]
     }
 
@@ -235,6 +271,19 @@ async def validar_dependencias(tipo: str):
                 resultado['advertencias'].append("⚠️ No hay grupos registrados.")
                 resultado['puede_importar'] = False
 
+        elif tipo == "calificaciones":  # ✅ AGREGADO
+            # Verificar estudiantes
+            estudiantes = await fetch_all("SELECT COUNT(*) as total FROM estudiante")
+            if estudiantes[0]['total'] == 0:
+                resultado['advertencias'].append("⚠️ No hay estudiantes registrados.")
+                resultado['puede_importar'] = False
+            
+            # Verificar clases
+            clases = await fetch_all("SELECT COUNT(*) as total FROM clase")
+            if clases[0]['total'] == 0:
+                resultado['advertencias'].append("⚠️ No hay clases registradas.")
+                resultado['puede_importar'] = False
+
         return resultado
 
     except Exception as e:
@@ -273,6 +322,10 @@ async def obtener_estadisticas():
         # Horarios
         horarios = await fetch_all("SELECT COUNT(*) as total FROM horario_clase")
         stats['horarios'] = horarios[0]['total']
+
+        # Calificaciones - ✅ AGREGADO
+        calificaciones = await fetch_all("SELECT COUNT(*) as total FROM calificacion_parcial")
+        stats['calificaciones'] = calificaciones[0]['total']
         
         return {
             "estadisticas": stats,
