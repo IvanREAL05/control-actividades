@@ -180,11 +180,11 @@ if 'modo_edicion' not in st.session_state:
 
 # Simulaciones de datos
 columnas_esperadas = {
-    "estudiantes": ["matricula", "nombre", "apellido", "email", "grupo"],
-    "profesores": ["nombre", "apellido"],
-    "grupos": ["nombre", "grado", "turno"],
-    "clases": ["materia", "grupo", "profesor"],
-    "materias": ["nombre", "codigo"],
+    "estudiantes": ["matricula", "nombre", "apellido", "grupo", "email", "no_lista"],
+    "profesores": ["nombre", "correo", "usuario_login", "contrasena"], 
+    "grupos": ["nombre", "turno", "nivel"],
+    "materias": ["nombre", "clave", "descripcion", "num_curso"],
+    "clases": ["nombre_clase", "materia", "profesor", "grupo", "dia", "hora_inicio", "hora_fin", "nrc"],
     "calificaciones": ["matricula", "nrc", "parcial_1", "parcial_2", "ordinario"]
 }
 

@@ -4,11 +4,12 @@ from controllers import importar_controller as ctrl
 from datetime import datetime, time
 from pydantic import BaseModel
 from typing import List, Optional
-from config.db import fetch_one, fetch_all, execute_query  # 👈 usamos tus helpers
+from config.db import fetch_one, fetch_all, execute_query
 import logging
 
 router = APIRouter()
-logger = logging.getLogger("api_calificaciones")
+logger = logging.getLogger("api_importar")
+
 # ==================== MODELOS ====================
 class EstudianteBase(BaseModel):
     matricula: str
@@ -39,37 +40,248 @@ class EstudianteResponse(BaseModel):
     nombre_grupo: str
     no_lista: int
 
+
+# ==================== ENDPOINT PRINCIPAL ====================
 @router.post("/{tipo}/archivo")
 async def importar_archivo(tipo: str, file: UploadFile = File(...)):
+    """
+    Endpoint para importar datos desde archivos Excel.
+    
+    Tipos soportados:
+    - estudiantes: matricula, nombre, apellido, grupo, email, no_lista
+    - profesores: nombre, correo, usuario_login, contrasena
+    - grupos: nombre, turno, nivel
+    - materias: nombre, clave, descripcion, num_curso
+    - clases: nombre_clase, materia, profesor, grupo, dia, hora_inicio, hora_fin, nrc
+    """
     try:
-        # ✅ Validar extensión de archivo antes de leer
-        if not file.filename.endswith((".xlsx", ".xls")):
-            raise HTTPException(status_code=400, detail="Archivo debe ser Excel")
+        # Validar tipo
+        tipos_validos = ["estudiantes", "profesores", "grupos", "clases", "materias"]
+        if tipo not in tipos_validos:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Tipo no válido. Tipos permitidos: {', '.join(tipos_validos)}"
+            )
 
+        # Validar extensión de archivo
+        if not file.filename.endswith((".xlsx", ".xls")):
+            raise HTTPException(
+                status_code=400, 
+                detail="El archivo debe ser formato Excel (.xlsx o .xls)"
+            )
+
+        # Leer contenido del archivo
+        logger.info(f"📥 Procesando archivo: {file.filename} para tipo: {tipo}")
         contents = await file.read()
         await file.close()
+        
+        # Convertir Excel a datos
         datos = leer_excel(contents)
 
-        if not datos:
-            raise HTTPException(status_code=400, detail="Archivo vacío")
+        if not datos or len(datos) == 0:
+            raise HTTPException(
+                status_code=400, 
+                detail="El archivo está vacío o no contiene datos válidos"
+            )
+
+        logger.info(f"📊 {len(datos)} filas encontradas en el archivo")
+
+        # Procesar según el tipo
+        resultado = {}
+        
+        if tipo == "estudiantes":
+            resultado = await ctrl.insertar_estudiantes(datos)
+            
+        elif tipo == "profesores":
+            resultado = await ctrl.insertar_profesores(datos)
+            
+        elif tipo == "grupos":
+            resultado = await ctrl.insertar_grupos(datos)
+            
+        elif tipo == "materias":
+            resultado = await ctrl.insertar_materias(datos)
+            
+        elif tipo == "clases":
+            resultado = await ctrl.insertar_clases(datos)
+
+        # Construir respuesta
+        response = {
+            "message": f"✅ {tipo.capitalize()} procesados correctamente",
+            "tipo": tipo,
+            "total_filas": len(datos),
+            **resultado
+        }
+
+        # Log del resultado
+        if tipo == "estudiantes":
+            logger.info(
+                f"✅ Estudiantes: {resultado.get('estudiantes_insertados', 0)} insertados, "
+                f"{resultado.get('estudiantes_actualizados', 0)} actualizados"
+            )
+        elif tipo == "profesores":
+            logger.info(
+                f"✅ Profesores: {resultado.get('profesores_insertados', 0)} insertados, "
+                f"{resultado.get('profesores_actualizados', 0)} actualizados"
+            )
+        elif tipo == "grupos":
+            logger.info(
+                f"✅ Grupos: {resultado.get('grupos_insertados', 0)} insertados, "
+                f"{resultado.get('grupos_actualizados', 0)} actualizados"
+            )
+        elif tipo == "materias":
+            logger.info(
+                f"✅ Materias: {resultado.get('materias_insertadas', 0)} insertadas, "
+                f"{resultado.get('materias_actualizadas', 0)} actualizadas"
+            )
+        elif tipo == "clases":
+            logger.info(
+                f"✅ Clases: {resultado.get('clases_insertadas', 0)} insertadas, "
+                f"{resultado.get('horarios_insertados', 0)} horarios creados"
+            )
+
+        # Si hay errores, incluirlos en la respuesta
+        if resultado.get('errores') and len(resultado['errores']) > 0:
+            response['total_errores'] = len(resultado['errores'])
+            logger.warning(f"⚠️ Se encontraron {len(resultado['errores'])} errores")
+
+        return response
+
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(f"❌ Error importando {tipo}: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error al procesar el archivo: {str(e)}"
+        )
+
+
+# ==================== ENDPOINTS ADICIONALES ====================
+
+@router.get("/tipos")
+async def obtener_tipos_disponibles():
+    """
+    Devuelve los tipos de importación disponibles y sus columnas requeridas
+    """
+    return {
+        "tipos_disponibles": {
+            "estudiantes": {
+                "columnas": ["matricula", "nombre", "apellido", "grupo", "email", "no_lista"],
+                "descripcion": "Importar estudiantes con información básica y asignación a grupo"
+            },
+            "profesores": {
+                "columnas": ["nombre", "correo", "usuario_login", "contrasena"],
+                "descripcion": "Importar profesores y crear sus usuarios de acceso"
+            },
+            "grupos": {
+                "columnas": ["nombre", "turno", "nivel"],
+                "descripcion": "Importar grupos con turno (matutino/vespertino) y nivel"
+            },
+            "materias": {
+                "columnas": ["nombre", "clave", "descripcion", "num_curso"],
+                "descripcion": "Importar materias con información completa"
+            },
+            "clases": {
+                "columnas": ["nombre_clase", "materia", "profesor", "grupo", "dia", "hora_inicio", "hora_fin", "nrc"],
+                "descripcion": "Importar clases y sus horarios (requiere que profesores, materias y grupos ya existan)"
+            }
+        },
+        "orden_recomendado": [
+            "1. Profesores",
+            "2. Materias", 
+            "3. Grupos",
+            "4. Estudiantes",
+            "5. Clases"
+        ]
+    }
+
+
+@router.get("/validar/{tipo}")
+async def validar_dependencias(tipo: str):
+    """
+    Valida si existen las dependencias necesarias antes de importar
+    """
+    try:
+        resultado = {
+            "tipo": tipo,
+            "puede_importar": True,
+            "advertencias": []
+        }
 
         if tipo == "estudiantes":
-            await ctrl.insertar_estudiantes(datos)
-        elif tipo == "profesores":
-            await ctrl.insertar_profesores(datos)
-        elif tipo == "grupos":
-            await ctrl.insertar_grupos(datos)
-        elif tipo == "clases":
-            await ctrl.insertar_clases(datos)
-        elif tipo == "materias":
-            await ctrl.insertar_materias(datos)
-        else:
-            raise HTTPException(status_code=400, detail="Tipo no válido")
+            # Verificar que existan grupos
+            grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo")
+            if grupos[0]['total'] == 0:
+                resultado['puede_importar'] = False
+                resultado['advertencias'].append("⚠️ No hay grupos registrados. Importe grupos primero.")
 
-        return {"message": f"{tipo.capitalize()} importados correctamente."}
+        elif tipo == "clases":
+            # Verificar profesores
+            profesores = await fetch_all("SELECT COUNT(*) as total FROM profesor")
+            if profesores[0]['total'] == 0:
+                resultado['advertencias'].append("⚠️ No hay profesores registrados.")
+                resultado['puede_importar'] = False
+            
+            # Verificar materias
+            materias = await fetch_all("SELECT COUNT(*) as total FROM materia")
+            if materias[0]['total'] == 0:
+                resultado['advertencias'].append("⚠️ No hay materias registradas.")
+                resultado['puede_importar'] = False
+            
+            # Verificar grupos
+            grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo")
+            if grupos[0]['total'] == 0:
+                resultado['advertencias'].append("⚠️ No hay grupos registrados.")
+                resultado['puede_importar'] = False
+
+        return resultado
+
     except Exception as e:
-        print(f"❌ Error importando {tipo}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al importar {tipo}")
+        logger.error(f"Error validando dependencias: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/estadisticas")
+async def obtener_estadisticas():
+    """
+    Devuelve estadísticas de los datos importados
+    """
+    try:
+        stats = {}
+        
+        # Estudiantes
+        estudiantes = await fetch_all("SELECT COUNT(*) as total FROM estudiante")
+        stats['estudiantes'] = estudiantes[0]['total']
+        
+        # Profesores
+        profesores = await fetch_all("SELECT COUNT(*) as total FROM profesor")
+        stats['profesores'] = profesores[0]['total']
+        
+        # Grupos
+        grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo")
+        stats['grupos'] = grupos[0]['total']
+        
+        # Materias
+        materias = await fetch_all("SELECT COUNT(*) as total FROM materia")
+        stats['materias'] = materias[0]['total']
+        
+        # Clases
+        clases = await fetch_all("SELECT COUNT(*) as total FROM clase")
+        stats['clases'] = clases[0]['total']
+        
+        # Horarios
+        horarios = await fetch_all("SELECT COUNT(*) as total FROM horario_clase")
+        stats['horarios'] = horarios[0]['total']
+        
+        return {
+            "estadisticas": stats,
+            "ultima_actualizacion": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo estadísticas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     
 # ==================== ENDPOINTS ====================
 
