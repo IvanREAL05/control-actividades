@@ -326,6 +326,7 @@ st.markdown("""
 st.sidebar.title("Menú")
 st.sidebar.page_link("pages/panel.py", label="🏠 Panel Principal")
 st.sidebar.page_link("pages/generarqr.py", label="🔑 Generar QR")
+st.sidebar.page_link("pages/generarqr_masivo.py", label="📦 QR Masivo")
 st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
 st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
 st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
@@ -784,6 +785,20 @@ with col_qr2:
         st.switch_page("pages/generarqr.py")
         st.success("¡Código QR generado exitosamente!")
         st.info("Código válido por 30 minutos")
+
+# QR masivo
+st.markdown("<hr>", unsafe_allow_html=True)
+col_qr1, col_qr2 = st.columns([3, 1])
+with col_qr1:
+    st.markdown("""
+    <div class="info-card">
+        <h4 style="color: #2563eb;">📦 QR Masivo por Grupo</h4>
+        <p>Genera y descarga en un .zip los QR de todo un grupo</p>
+    </div>
+    """, unsafe_allow_html=True)
+with col_qr2:
+    if st.button("📦 QR Masivo"):
+        st.switch_page("pages/generarqr_masivo.py")
 
 # Reportes de excel
 st.markdown("<hr>", unsafe_allow_html=True)

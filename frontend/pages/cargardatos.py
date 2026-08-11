@@ -160,6 +160,7 @@ st.markdown("""
 st.sidebar.title("Menú")
 st.sidebar.page_link("pages/panel.py", label="🏠 Panel Principal")
 st.sidebar.page_link("pages/generarqr.py", label="🔑 Generar QR")
+st.sidebar.page_link("pages/generarqr_masivo.py", label="📦 QR Masivo")
 st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
 st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
 st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
