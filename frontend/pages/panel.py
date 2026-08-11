@@ -229,7 +229,10 @@ st.markdown("""
 col_user, col_btn = st.columns([4, 1])
 
 with col_user:
-    st.info(f"👋 Bienvenido, {usuario['nombre_completo']}")
+    # nombre_completo está guardado como "Apellido Nombre" -> tomamos la
+    # última palabra para saludar solo con el nombre de pila.
+    primer_nombre = usuario['nombre_completo'].strip().split()[-1] if usuario.get('nombre_completo') else ""
+    st.info(f"👋 Bienvenido, {primer_nombre}")
 
 with col_btn:
     if st.button("🚪 Cerrar Sesión"):

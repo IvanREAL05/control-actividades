@@ -38,7 +38,11 @@ if st.button("Ingresar"):
                 data = response.json()
                 if data.get("success"):
                     st.session_state["usuario"] = data["data"]["usuario"]
-                    st.success(f"✅ Bienvenido {data['data']['usuario']['nombre_completo']}")
+                    nombre_completo = data["data"]["usuario"].get("nombre_completo", "")
+                    # nombre_completo está guardado como "Apellido Nombre" -> saludamos
+                    # solo con el nombre de pila (última palabra).
+                    primer_nombre = nombre_completo.strip().split()[-1] if nombre_completo else ""
+                    st.success(f"✅ Bienvenido {primer_nombre}")
                     st.switch_page("pages/panel.py")
                 else:
                     st.error("❌ Usuario o contraseña incorrectos")
