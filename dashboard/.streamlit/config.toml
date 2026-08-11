@@ -1,9 +1,0 @@
-[theme]
-# Mismo tema fijo en claro que frontend/, para que ambas apps se vean como
-# un solo producto y no dependan del modo oscuro/claro del sistema operativo.
-base = "light"
-primaryColor = "#2563eb"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f9fafb"
-textColor = "#1f2937"
-font = "sans serif"

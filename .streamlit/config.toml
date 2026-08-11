@@ -1,0 +1,13 @@
+[theme]
+# Streamlit lee .streamlit/config.toml relativo al directorio de trabajo
+# (cwd) donde se ejecuta `streamlit run`, no relativo al archivo principal.
+# En Streamlit Community Cloud el cwd es la raíz del repo, sin importar si
+# el "main file path" es frontend/app.py o dashboard/app.py — por eso este
+# archivo va aquí y no dentro de frontend/ o dashboard/. Un solo archivo
+# cubre ambas apps porque comparten repo.
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f9fafb"
+textColor = "#1f2937"
+font = "sans serif"
