@@ -212,7 +212,7 @@ if st.session_state.get("login_exitoso"):
                 font-size: 16px;
             }}
             thead {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
                 position: sticky;
                 top: 0;
                 z-index: 100;
@@ -310,11 +310,11 @@ if st.session_state.get("login_exitoso"):
                 border-radius: 10px;
             }}
             .table-wrapper::-webkit-scrollbar-thumb {{
-                background: #667eea;
+                background: #2563eb;
                 border-radius: 10px;
             }}
             .table-wrapper::-webkit-scrollbar-thumb:hover {{
-                background: #764ba2;
+                background: #1e40af;
             }}
         </style>
     </head>
@@ -542,7 +542,7 @@ if "session_id" not in st.session_state or st.session_state.session_id is None:
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(session_id)
         qr.make(fit=True)
-        img = qr.make_image(fill_color="#667eea", back_color="white")
+        img = qr.make_image(fill_color="#2563eb", back_color="white")
         st.session_state.qr_image = np.array(img.convert('RGB'))
     else:
         st.error("❌ Error conectando con el servidor")
@@ -584,7 +584,7 @@ html_content = f"""
             overflow: hidden;
         }}
         body {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -611,7 +611,7 @@ html_content = f"""
             font-weight: 700;
         }}
         .logo-section p {{
-            color: #667eea;
+            color: #2563eb;
             font-size: 0.95rem;
             font-weight: 600;
             margin-bottom: 3px;
@@ -639,7 +639,7 @@ html_content = f"""
             margin: 0 auto;
         }}
         .timer {{
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #2563eb, #1e40af);
             color: white;
             padding: 12px 25px;
             border-radius: 50px;
@@ -685,7 +685,7 @@ html_content = f"""
             border-radius: 10px;
         }}
         .step-number {{
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, #2563eb, #1e40af);
             color: white;
             width: 28px;
             height: 28px;
@@ -708,11 +708,11 @@ html_content = f"""
             border-radius: 10px;
         }}
         .container::-webkit-scrollbar-thumb {{
-            background: #667eea;
+            background: #2563eb;
             border-radius: 10px;
         }}
         .container::-webkit-scrollbar-thumb:hover {{
-            background: #764ba2;
+            background: #1e40af;
         }}
     </style>
 </head>

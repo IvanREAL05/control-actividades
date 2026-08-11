@@ -471,9 +471,9 @@ else:
             values="Cantidad",
             color="Estado",
             color_discrete_map={
-                "Presentes": "#0ae73a",
-                "Ausentes": "#e61010",
-                "Justificantes": "#f3f70c"
+                "Presentes": "#0ca30c",
+                "Ausentes": "#d03b3b",
+                "Justificantes": "#fab219"
             },
             title="Distribución de Asistencia"
         )
@@ -506,9 +506,9 @@ else:
             y=['Presentes', 'Ausentes', 'Justificantes'],
             title="Tendencia de Asistencia (7 días)",
             color_discrete_map={
-                "Presentes": "#0ae73a",
-                "Ausentes": "#e61010",
-                "Justificantes": "#f3f70c"
+                "Presentes": "#0ca30c",
+                "Ausentes": "#d03b3b",
+                "Justificantes": "#fab219"
             }
         )
         fig_trend.update_layout(
