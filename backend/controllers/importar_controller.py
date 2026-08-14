@@ -41,8 +41,9 @@ async def insertar_estudiantes(estudiantes):
                 errores.append(f"Fila {i+1}: Datos incompletos - matricula: {matricula}")
                 continue
 
-            # Obtener id_grupo
-            grupo_res = await fetch_one("SELECT id_grupo FROM grupo WHERE nombre = %s", [grupo])
+            # Obtener id_grupo (solo grupos activos: si el grupo está en la
+            # papelera hay que restaurarlo o volver a importarlo primero)
+            grupo_res = await fetch_one("SELECT id_grupo FROM grupo WHERE nombre = %s AND eliminado = 0", [grupo])
             if not grupo_res:
                 logger.warning(f"Fila {i+1}: Grupo no encontrado: {grupo}")
                 errores.append(f"Fila {i+1}: Grupo '{grupo}' no encontrado. Importe grupos primero.")
@@ -64,24 +65,31 @@ async def insertar_estudiantes(estudiantes):
                 numero_lista = i + 1
                 logger.info(f"Asignando número de lista automático {numero_lista} para {matricula}")
 
-            # Verificar si el estudiante ya existe
+            # Verificar si el estudiante ya existe.
+            # La matrícula es única, así que hay que mirar también los alumnos
+            # en la papelera: si no, el INSERT chocaría con la llave única.
             estudiante_existente = await fetch_one(
-                "SELECT id_estudiante FROM estudiante WHERE matricula = %s", 
+                "SELECT id_estudiante, eliminado FROM estudiante WHERE matricula = %s",
                 [matricula]
             )
 
             if estudiante_existente:
-                # Actualizar estudiante existente
+                # Actualizar estudiante existente. Si venía de la papelera,
+                # volver a importarlo lo reactiva.
                 await execute_query(
                     """
-                    UPDATE estudiante 
-                    SET nombre = %s, apellido = %s, correo = %s, id_grupo = %s, no_lista = %s
+                    UPDATE estudiante
+                    SET nombre = %s, apellido = %s, correo = %s, id_grupo = %s, no_lista = %s,
+                        eliminado = 0, fecha_eliminado = NULL, eliminado_por = NULL
                     WHERE matricula = %s
                     """,
                     [nombre, apellido, email, id_grupo, numero_lista, matricula]
                 )
                 estudiantes_actualizados += 1
-                logger.info(f"✅ Estudiante actualizado: {matricula} - {nombre} {apellido}")
+                if estudiante_existente["eliminado"]:
+                    logger.info(f"♻️ Estudiante reactivado desde la papelera: {matricula} - {nombre} {apellido}")
+                else:
+                    logger.info(f"✅ Estudiante actualizado: {matricula} - {nombre} {apellido}")
             else:
                 # Insertar nuevo estudiante
                 await execute_query(
@@ -244,24 +252,31 @@ async def insertar_grupos(grupos):
             if nivel is not None:
                 nivel = str(nivel).strip()
             
-            # Verificar si ya existe
+            # Verificar si ya existe (incluidos los que están en la papelera:
+            # el nombre es único y el INSERT chocaría con la llave)
             grupo_existente = await fetch_one(
-                "SELECT id_grupo FROM grupo WHERE nombre = %s", 
+                "SELECT id_grupo, eliminado FROM grupo WHERE nombre = %s",
                 [nombre]
             )
-            
+
             if grupo_existente:
-                # Actualizar
+                # Actualizar. Si el grupo estaba en la papelera, reimportarlo
+                # lo reactiva (sus alumnos y clases NO se restauran solos:
+                # eso se hace desde la papelera o reimportándolos también).
                 await execute_query(
                     """
-                    UPDATE grupo 
-                    SET turno = %s, nivel = %s
+                    UPDATE grupo
+                    SET turno = %s, nivel = %s,
+                        eliminado = 0, fecha_eliminado = NULL, eliminado_por = NULL
                     WHERE nombre = %s
                     """,
                     [turno, nivel, nombre]
                 )
                 grupos_actualizados += 1
-                logger.info(f"✅ Grupo actualizado: {nombre} ({turno}, nivel {nivel})")
+                if grupo_existente["eliminado"]:
+                    logger.info(f"♻️ Grupo reactivado desde la papelera: {nombre} ({turno}, nivel {nivel})")
+                else:
+                    logger.info(f"✅ Grupo actualizado: {nombre} ({turno}, nivel {nivel})")
             else:
                 # Insertar
                 await execute_query(
@@ -436,13 +451,14 @@ async def insertar_clases(clases):
 
             # Obtener IDs de las tablas relacionadas
             prof_res = await fetch_one("SELECT id_profesor FROM profesor WHERE nombre = %s", [profesor])
+            # (profesor y materia no manejan borrado lógico: no se limpian por ciclo)
             if not prof_res:
                 logger.warning(f"Fila {i+1}: Profesor no encontrado: '{profesor}'")
                 errores.append(f"Fila {i+1}: Profesor '{profesor}' no encontrado. Importe profesores primero.")
                 continue
             id_profesor = prof_res["id_profesor"]
 
-            grupo_res = await fetch_one("SELECT id_grupo FROM grupo WHERE nombre = %s", [grupo])
+            grupo_res = await fetch_one("SELECT id_grupo FROM grupo WHERE nombre = %s AND eliminado = 0", [grupo])
             if not grupo_res:
                 logger.warning(f"Fila {i+1}: Grupo no encontrado: '{grupo}'")
                 errores.append(f"Fila {i+1}: Grupo '{grupo}' no encontrado. Importe grupos primero.")
@@ -461,15 +477,29 @@ async def insertar_clases(clases):
             id_clase = clases_map.get(clave)
 
             if not id_clase:
-                # Verificar si existe en BD por NRC (que es único)
+                # Verificar si existe en BD por NRC (que es único).
+                # Se incluyen las clases en papelera para no chocar con la llave.
                 clase_existente = await fetch_one(
-                    "SELECT id_clase FROM clase WHERE nrc = %s",
+                    "SELECT id_clase, eliminado FROM clase WHERE nrc = %s",
                     [nrc]
                 )
-                
+
                 if clase_existente:
                     id_clase = clase_existente["id_clase"]
-                    logger.info(f"⚠️ Clase existente encontrada: {nombre_clase} (NRC: {nrc})")
+                    if clase_existente["eliminado"]:
+                        # Reimportar el NRC reactiva la clase y la reasigna
+                        await execute_query(
+                            """
+                            UPDATE clase
+                            SET nombre_clase = %s, id_profesor = %s, id_materia = %s, id_grupo = %s,
+                                eliminado = 0, fecha_eliminado = NULL, eliminado_por = NULL
+                            WHERE id_clase = %s
+                            """,
+                            [nombre_clase, id_profesor, id_materia, id_grupo, id_clase]
+                        )
+                        logger.info(f"♻️ Clase reactivada desde la papelera: {nombre_clase} (NRC: {nrc})")
+                    else:
+                        logger.info(f"⚠️ Clase existente encontrada: {nombre_clase} (NRC: {nrc})")
                 else:
                     # Insertar nueva clase
                     id_clase = await execute_query(
@@ -487,14 +517,26 @@ async def insertar_clases(clases):
             # Verificar si el horario ya existe
             horario_existente = await fetch_one(
                 """
-                SELECT id_horario FROM horario_clase 
+                SELECT id_horario, eliminado FROM horario_clase
                 WHERE id_clase=%s AND dia=%s AND hora_inicio=%s AND hora_fin=%s
                 """,
                 [id_clase, dia, hora_inicio, hora_fin]
             )
-            
+
             if horario_existente:
-                logger.info(f"⚠️ Horario ya existe: {nombre_clase} - {dia} {hora_inicio}-{hora_fin}")
+                if horario_existente["eliminado"]:
+                    await execute_query(
+                        """
+                        UPDATE horario_clase
+                        SET eliminado = 0, fecha_eliminado = NULL, eliminado_por = NULL
+                        WHERE id_horario = %s
+                        """,
+                        [horario_existente["id_horario"]]
+                    )
+                    horarios_insertados += 1
+                    logger.info(f"♻️ Horario reactivado: {nombre_clase} - {dia} {hora_inicio}-{hora_fin}")
+                else:
+                    logger.info(f"⚠️ Horario ya existe: {nombre_clase} - {dia} {hora_inicio}-{hora_fin}")
                 continue
 
             # Insertar horario
@@ -760,7 +802,7 @@ async def insertar_calificaciones(calificaciones_data):
             
             # Buscar estudiante por matrícula
             estudiante = await fetch_one(
-                "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula = %s",
+                "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula = %s AND eliminado = 0",
                 [matricula]
             )
             if not estudiante:
@@ -773,7 +815,7 @@ async def insertar_calificaciones(calificaciones_data):
             
             # Buscar clase por NRC
             clase = await fetch_one(
-                "SELECT id_clase, id_grupo FROM clase WHERE nrc = %s",
+                "SELECT id_clase, id_grupo FROM clase WHERE nrc = %s AND eliminado = 0",
                 [nrc]
             )
             if not clase:

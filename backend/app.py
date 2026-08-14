@@ -13,7 +13,7 @@ from routes import (
     actividades, avisos,login, clases, estadisticas,
     estudiantes, grupos, profesor, qr, asistencias, 
     importar, reportes, justificantes, observaciones,
-    info, tabla_dashboard, calificaciones
+    info, tabla_dashboard, calificaciones, papelera
 )
 
 # Manejo del ciclo de vida de la aplicación
@@ -108,6 +108,7 @@ app.include_router(tabla_dashboard.router, tags=["WebSocket Tabla"])  # Para /ws
 app.include_router(tabla_dashboard.router, prefix='/api/tabla', tags=["API Tabla"]) 
 app.include_router(login.ws_router, tags=["WebSocket Auth"])
 app.include_router(calificaciones.router, prefix='/api/calificaciones', tags=["Calificaciones"])
+app.include_router(papelera.router, prefix='/api/papelera', tags=["Papelera"])
 
 
 # ✅ Ruta health check mejorada

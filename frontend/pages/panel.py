@@ -254,6 +254,7 @@ st.sidebar.page_link("pages/generarqr_masivo.py", label="📦 QR Masivo")
 st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
 st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
 st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
+st.sidebar.page_link("pages/gestionar.py", label="🗂️ Gestionar datos")
 st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 st.markdown("<hr>", unsafe_allow_html=True)
@@ -684,6 +685,7 @@ with tab_herramientas:
         ("📢", "Crear Aviso", "Publica un aviso para estudiantes o profesores", "pages/crearaviso.py", "Crear aviso"),
         ("📥", "Cargar Datos", "Sube o actualiza datos desde Excel", "pages/cargardatos.py", "Cargar datos"),
         ("📝", "Justificantes", "Revisa y gestiona justificantes de inasistencia", "pages/justificantes.py", "Ver justificantes"),
+        ("🗂️", "Gestionar Datos", "Borra grupos o alumnos y restaura desde la papelera", "pages/gestionar.py", "Gestionar datos"),
     ]
 
     for fila_inicio in range(0, len(herramientas), 3):

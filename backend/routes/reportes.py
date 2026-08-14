@@ -88,6 +88,7 @@ async def generar_reporte_grupo(
                 AND a.fecha BETWEEN %s AND %s
             WHERE e.id_grupo = %s
                 AND c.id_grupo = %s
+                AND e.eliminado = 0 AND c.eliminado = 0
             ORDER BY m.nombre, e.no_lista, a.fecha
         """
         
@@ -212,7 +213,7 @@ async def generar_reporte_individual(
         
         # Obtener datos del estudiante
         estudiante = await fetch_one(
-            "SELECT nombre, apellido, matricula FROM estudiante WHERE id_estudiante = %s",
+            "SELECT nombre, apellido, matricula FROM estudiante WHERE id_estudiante = %s AND eliminado = 0",
             (id_estudiante,)
         )
         
@@ -229,7 +230,7 @@ async def generar_reporte_individual(
                 a.fecha,
                 a.estado
             FROM asistencia a
-            JOIN clase c ON a.id_clase = c.id_clase
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
             JOIN materia m ON c.id_materia = m.id_materia
             WHERE a.id_estudiante = %s
                 AND a.fecha BETWEEN %s AND %s
@@ -329,7 +330,7 @@ async def generar_reporte_actividades_clase(id_clase: int):
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """, (id_clase,))
         
         if not clase:
@@ -351,8 +352,9 @@ async def generar_reporte_actividades_clase(id_clase: int):
             SELECT id_estudiante, nombre, apellido, matricula
             FROM estudiante
             WHERE id_grupo = (
-                SELECT id_grupo FROM clase WHERE id_clase = %s
+                SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0
             )
+              AND eliminado = 0
             ORDER BY apellido, nombre
         """, (id_clase,))
         
@@ -452,7 +454,7 @@ async def generar_reporte_general_actividades(id_clase: int):
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """, (id_clase,))
         
         if not clase:
@@ -473,7 +475,8 @@ async def generar_reporte_general_actividades(id_clase: int):
         alumnos = await fetch_all("""
             SELECT id_estudiante, nombre, apellido, matricula, no_lista
             FROM estudiante
-            WHERE id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
+            WHERE id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0)
+              AND eliminado = 0
             ORDER BY no_lista
         """, (id_clase,))
         
@@ -604,7 +607,7 @@ async def generar_reporte_profesor(
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_profesor = %s
+            WHERE c.id_profesor = %s AND c.eliminado = 0
             ORDER BY m.nombre, g.nombre
         """, (id_profesor,))
         
@@ -625,7 +628,7 @@ async def generar_reporte_profesor(
                        e.no_lista, g.nombre AS grupo
                 FROM estudiante e
                 JOIN grupo g ON e.id_grupo = g.id_grupo
-                WHERE e.id_grupo = %s
+                WHERE e.id_grupo = %s AND e.eliminado = 0 AND g.eliminado = 0
                 ORDER BY e.no_lista
             """, (clase["id_grupo"],))
             
@@ -744,7 +747,7 @@ async def generar_reporte_completo_clase(id_clase: int):
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """, (id_clase,))
         if not clase:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
@@ -766,7 +769,7 @@ async def generar_reporte_completo_clase(id_clase: int):
         alumnos = await fetch_all("""
             SELECT id_estudiante, nombre, apellido, matricula, no_lista
             FROM estudiante
-            WHERE id_grupo = %s
+            WHERE id_grupo = %s AND eliminado = 0
             ORDER BY no_lista
         """, (id_grupo,))
 
@@ -845,9 +848,9 @@ async def generar_reporte_completo_clase(id_clase: int):
                 a.estado,
                 a.fecha
             FROM estudiante e
-            JOIN clase c ON c.id_grupo = e.id_grupo
+            JOIN clase c ON c.id_grupo = e.id_grupo AND c.eliminado = 0
             LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante AND a.id_clase = c.id_clase
-            WHERE c.id_grupo = %s AND c.id_materia = %s
+            WHERE c.id_grupo = %s AND c.id_materia = %s AND e.eliminado = 0
             ORDER BY e.no_lista, a.fecha
         """
         resultado = await fetch_all(asistencias_query, (id_grupo, id_materia))
@@ -946,7 +949,7 @@ async def reporte_asistencias_profesor(id_profesor: int):
             FROM clase c
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_profesor = %s
+            WHERE c.id_profesor = %s AND c.eliminado = 0
         """
         clases = await fetch_all(clases_query, (id_profesor,))
         if not clases:
@@ -965,7 +968,8 @@ async def reporte_asistencias_profesor(id_profesor: int):
                 SELECT e.id_estudiante, e.nombre, e.apellido, e.matricula, e.no_lista, g.nombre AS grupo
                 FROM estudiante e
                 JOIN grupo g ON e.id_grupo = g.id_grupo
-                WHERE e.id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s)
+                WHERE e.id_grupo = (SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0)
+                  AND e.eliminado = 0 AND g.eliminado = 0
                 ORDER BY e.no_lista
             """
             estudiantes = await fetch_all(estudiantes_query, (clase['id_clase'],))
@@ -1048,7 +1052,7 @@ async def exportar_excel_alumnos_clase(id_clase: int):
             FROM clase c
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN materia m ON c.id_materia = m.id_materia
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0 AND g.eliminado = 0
         """
         clase_info = await fetch_one(clase_info_query, (id_clase,))
 
@@ -1069,9 +1073,9 @@ async def exportar_excel_alumnos_clase(id_clase: int):
                 a.estado,
                 a.fecha
             FROM estudiante e
-            JOIN clase c ON c.id_grupo = e.id_grupo
+            JOIN clase c ON c.id_grupo = e.id_grupo AND c.eliminado = 0
             LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante AND a.id_clase = c.id_clase
-            WHERE c.id_grupo = %s AND c.id_materia = %s
+            WHERE c.id_grupo = %s AND c.id_materia = %s AND e.eliminado = 0
             ORDER BY e.nombre, e.apellido, a.fecha
         """
         resultado = await fetch_all(asistencias_query, (id_grupo, id_materia))

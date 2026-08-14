@@ -27,7 +27,7 @@ async def obtener_estudiantes_grupo(id_grupo: int):
     query = """
         SELECT id_estudiante, nombre, apellido, estado_actual, correo, id_grupo, no_lista, matricula
         FROM estudiante
-        WHERE id_grupo = %s
+        WHERE id_grupo = %s AND eliminado = 0
         ORDER BY no_lista ASC, apellido ASC
     """
     try:
@@ -41,7 +41,7 @@ async def obtener_estudiantes_grupo(id_grupo: int):
 # Obtener estudiante por matrícula → solo id_estudiante
 @router.get("/matricula/{matricula}")
 async def obtener_estudiante_por_matricula(matricula: str):
-    query = "SELECT id_estudiante FROM estudiante WHERE matricula = %s"
+    query = "SELECT id_estudiante FROM estudiante WHERE matricula = %s AND eliminado = 0"
     try:
         row = await fetch_one(query, (matricula,))
         if not row:
@@ -58,7 +58,7 @@ async def buscar_estudiante_por_matricula(matricula: str):
     query = """
         SELECT id_estudiante, CONCAT(nombre, ' ', apellido) AS nombre_completo
         FROM estudiante
-        WHERE matricula = %s
+        WHERE matricula = %s AND eliminado = 0
     """
     try:
         row = await fetch_one(query, (matricula,))
@@ -82,7 +82,7 @@ async def crear_estudiante(data: EstudianteNuevo):
 
     try:
         # 1. Buscar id_grupo a partir del nombre del grupo
-        query_grupo = "SELECT id_grupo FROM grupo WHERE nombre = %s"
+        query_grupo = "SELECT id_grupo FROM grupo WHERE nombre = %s AND eliminado = 0"
         grupo = await fetch_one(query_grupo, (grupo_nombre,))
         if not grupo:
             raise HTTPException(status_code=400, detail="Grupo no encontrado")
@@ -96,7 +96,12 @@ async def crear_estudiante(data: EstudianteNuevo):
                 nombre = VALUES(nombre),
                 apellido = VALUES(apellido),
                 correo = VALUES(correo),
-                id_grupo = VALUES(id_grupo)
+                id_grupo = VALUES(id_grupo),
+                -- La matrícula es única: si el alumno estaba en la papelera,
+                -- volver a darlo de alta lo reactiva en vez de chocar.
+                eliminado = 0,
+                fecha_eliminado = NULL,
+                eliminado_por = NULL
         """
         await execute_query(query_insert, (matricula, nombre, apellido, correo, id_grupo))
 
@@ -106,7 +111,7 @@ async def crear_estudiante(data: EstudianteNuevo):
                 SELECT id_estudiante,
                        ROW_NUMBER() OVER (ORDER BY apellido ASC, nombre ASC) AS nuevo_numero
                 FROM estudiante
-                WHERE id_grupo = %s
+                WHERE id_grupo = %s AND eliminado = 0
             )
             UPDATE estudiante e
             JOIN ordenados o ON e.id_estudiante = o.id_estudiante

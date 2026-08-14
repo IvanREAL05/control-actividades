@@ -77,7 +77,7 @@ async def inicializar_asistencias(id_clase: int, connection: aiomysql.Connection
         async with connection.cursor() as cursor:
             # Obtener grupo de la clase
             await cursor.execute(
-                "SELECT id_grupo FROM clase WHERE id_clase = %s",
+                "SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0",
                 (id_clase,)
             )
             grupo_result = await cursor.fetchone()
@@ -90,7 +90,7 @@ async def inicializar_asistencias(id_clase: int, connection: aiomysql.Connection
             
             # Obtener estudiantes del grupo
             await cursor.execute(
-                "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s",
+                "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s AND eliminado = 0",
                 (id_grupo,)
             )
             estudiantes = await cursor.fetchall()
@@ -161,13 +161,14 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                     a.id_asistencia,
                     a.estado as estado_actual
                 FROM estudiante e
-                JOIN grupo g ON g.nombre = %s
-                JOIN clase c ON c.id_grupo = g.id_grupo
-                LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante 
-                    AND a.id_clase = c.id_clase 
+                JOIN grupo g ON g.nombre = %s AND g.eliminado = 0
+                JOIN clase c ON c.id_grupo = g.id_grupo AND c.eliminado = 0
+                LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante
+                    AND a.id_clase = c.id_clase
                     AND a.fecha = %s
                 WHERE e.matricula = %s
-                    AND c.id_clase = %s 
+                    AND c.id_clase = %s
+                    AND e.eliminado = 0
                 LIMIT 1
             """
 
@@ -189,7 +190,7 @@ async def escanear_qr(request: EscaneoQRRequest, connection: aiomysql.Connection
                 FROM grupo g
                 JOIN clase c ON c.id_grupo = g.id_grupo
                 JOIN materia m ON c.id_materia = m.id_materia
-                WHERE c.id_clase = %s
+                WHERE c.id_clase = %s AND c.eliminado = 0 AND g.eliminado = 0
             """, (request.id_clase,))
             info_clase = await cursor.fetchone()
             nombre_grupo, nombre_materia = info_clase if info_clase else ("", "")
@@ -297,7 +298,7 @@ async def obtener_resumen(
         async with connection.cursor() as cursor:
             # Total alumnos en el turno
             await cursor.execute(
-                "SELECT COUNT(*) FROM estudiante e JOIN grupo g ON e.id_grupo = g.id_grupo WHERE g.nombre LIKE %s",
+                "SELECT COUNT(*) FROM estudiante e JOIN grupo g ON e.id_grupo = g.id_grupo WHERE g.nombre LIKE %s AND e.eliminado = 0 AND g.eliminado = 0",
                 (like_turno,)
             )
             total_alumnos = (await cursor.fetchone())[0]
@@ -311,6 +312,7 @@ async def obtener_resumen(
                 WHERE a.estado = 'presente'
                     AND a.fecha = %s
                     AND g.nombre LIKE %s
+                    AND e.eliminado = 0 AND g.eliminado = 0
                 """,
                 (hoy, like_turno)
             )
@@ -325,6 +327,7 @@ async def obtener_resumen(
                 WHERE a.estado = 'justificante'
                     AND a.fecha = %s
                     AND g.nombre LIKE %s
+                    AND e.eliminado = 0 AND g.eliminado = 0
                 """,
                 (hoy, like_turno)
             )
@@ -368,17 +371,18 @@ async def obtener_por_clase(fecha: Optional[str] = Query(None)):
             COUNT(DISTINCT e.id_estudiante) 
                 - COUNT(CASE WHEN a.estado IN ('presente', 'justificante') THEN 1 END) AS ausentes
         FROM clase c
-        JOIN grupo g ON g.id_grupo = c.id_grupo
-        JOIN estudiante e ON e.id_grupo = g.id_grupo
+        JOIN grupo g ON g.id_grupo = c.id_grupo AND g.eliminado = 0
+        JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.eliminado = 0
         JOIN (
             SELECT DISTINCT id_clase
             FROM horario_clase
-            WHERE dia = %s
+            WHERE dia = %s AND eliminado = 0
         ) hc ON hc.id_clase = c.id_clase
-        LEFT JOIN asistencia a 
-            ON a.id_estudiante = e.id_estudiante 
-            AND a.id_clase = c.id_clase 
+        LEFT JOIN asistencia a
+            ON a.id_estudiante = e.id_estudiante
+            AND a.id_clase = c.id_clase
             AND a.fecha = %s
+        WHERE c.eliminado = 0
         GROUP BY c.id_clase, c.nombre_clase, g.nombre
         ORDER BY c.id_clase
         """
@@ -452,9 +456,9 @@ async def generar_excel_clase(id_clase: int):
             FROM clase c
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN materia m ON c.id_materia = m.id_materia
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0 AND g.eliminado = 0
         """, (id_clase,))
-        
+
         if not clase_info:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
         
@@ -472,9 +476,9 @@ async def generar_excel_clase(id_clase: int):
                 a.estado,
                 a.fecha
             FROM estudiante e
-            JOIN clase c ON c.id_grupo = e.id_grupo
+            JOIN clase c ON c.id_grupo = e.id_grupo AND c.eliminado = 0
             LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante AND a.id_clase = c.id_clase
-            WHERE c.id_grupo = %s AND c.id_materia = %s
+            WHERE c.id_grupo = %s AND c.id_materia = %s AND e.eliminado = 0
             ORDER BY e.nombre, e.apellido, a.fecha
         """, (id_grupo, id_materia))
         
@@ -577,7 +581,7 @@ async def actualizar_asistencia(request: ActualizarAsistenciaRequest):
 
         # Buscar al estudiante
         estudiante_result = await fetch_one(
-            "SELECT id_estudiante FROM estudiante WHERE matricula = %s",
+            "SELECT id_estudiante FROM estudiante WHERE matricula = %s AND eliminado = 0",
             (request.matricula,)
         )
         if not estudiante_result:
@@ -708,7 +712,7 @@ async def obtener_resumen_general(
 
         async with connection.cursor(aiomysql.DictCursor) as cursor:
             # Total alumnos
-            await cursor.execute("SELECT COUNT(*) AS total FROM estudiante")
+            await cursor.execute("SELECT COUNT(*) AS total FROM estudiante WHERE eliminado = 0")
             total_result = await cursor.fetchone()
             total_alumnos = total_result['total'] if total_result else 0
 
@@ -719,12 +723,14 @@ async def obtener_resumen_general(
                     COUNT(DISTINCT CASE WHEN a.estado = 'presente' THEN a.id_estudiante END) AS presentes,
                     COUNT(DISTINCT CASE WHEN a.estado = 'justificante' THEN a.id_estudiante END) AS justificantes
                 FROM asistencia a
+                JOIN estudiante e ON e.id_estudiante = a.id_estudiante
                 JOIN clase c ON a.id_clase = c.id_clase
                 JOIN horario_clase hc ON hc.id_clase = c.id_clase
                 WHERE a.fecha BETWEEN %s AND %s
                   AND hc.hora_inicio >= %s
                   AND hc.hora_inicio <= %s
                   AND LOWER(hc.dia) = %s
+                  AND e.eliminado = 0 AND c.eliminado = 0 AND hc.eliminado = 0
             """
             await cursor.execute(query, (FECHA_INICIO_CICLO, hoy, hora_inicio_turno, hora_fin_turno, dia.lower()))
             result = await cursor.fetchone()
@@ -784,6 +790,8 @@ async def obtener_lista_alumnos(
                     AND LOWER(hc.dia) = %s
                     AND hc.hora_inicio >= %s
                     AND hc.hora_inicio <= %s
+                    AND e.eliminado = 0 AND g.eliminado = 0
+                    AND c.eliminado = 0 AND hc.eliminado = 0
                 GROUP BY e.nombre, e.apellido, e.matricula, g.nombre
                 ORDER BY totalFaltas DESC
             """, (FECHA_INICIO_CICLO, hoy, estado, dia_semana_texto, hora_inicio_turno, hora_fin_turno))
@@ -832,6 +840,8 @@ async def generar_excel_general(
                     AND LOWER(hc.dia) = %s
                     AND hc.hora_inicio >= %s
                     AND hc.hora_inicio <= %s
+                    AND e.eliminado = 0 AND g.eliminado = 0
+                    AND c.eliminado = 0 AND hc.eliminado = 0
                 GROUP BY e.nombre, e.apellido, e.matricula, g.nombre
                 ORDER BY e.apellido, e.nombre
             """, (FECHA_INICIO_CICLO, hoy, dia_semana_texto, hora_inicio_turno, hora_fin_turno))
@@ -894,14 +904,14 @@ async def inicializar_asistencias(id_clase: int):
     hoy = datos_fecha["fecha"]
 
     # 1️⃣ Obtener grupo de la clase
-    query_grupo = "SELECT id_grupo FROM clase WHERE id_clase = %s"
+    query_grupo = "SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0"
     grupo = await fetch_all(query_grupo, (id_clase,))
     if not grupo:
         return
     id_grupo = grupo[0]["id_grupo"]
 
     # 2️⃣ Obtener estudiantes del grupo
-    query_estudiantes = "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s"
+    query_estudiantes = "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s AND eliminado = 0"
     estudiantes = await fetch_all(query_estudiantes, (id_grupo,))
 
     # 3️⃣ Insertar asistencia como 'ausente' si no existe
@@ -945,8 +955,9 @@ async def obtener_asistencia_clase(id_clase: int):
                 AND a.id_clase = %s 
                 AND a.fecha = %s
             WHERE e.id_grupo = (
-                SELECT id_grupo FROM clase WHERE id_clase = %s
+                SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0
             )
+              AND e.eliminado = 0
             ORDER BY e.no_lista
         """
         rows = await fetch_all(query, (id_clase, hoy, id_clase))

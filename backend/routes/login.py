@@ -298,7 +298,7 @@ async def obtener_perfil(id_usuario: int):
                 FROM clase c
                 JOIN materia m ON c.id_materia = m.id_materia
                 JOIN grupo g ON c.id_grupo = g.id_grupo
-                WHERE c.id_profesor = %s
+                WHERE c.id_profesor = %s AND c.eliminado = 0 AND g.eliminado = 0
                 ORDER BY m.nombre
             """
             clases = await fetch_all(clases_query, (user['id_profesor'],))
@@ -489,7 +489,7 @@ async def confirmar_sesion(request: ConfirmarSesionRequest):
             FROM clase c
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_clase = %s AND c.id_profesor = %s
+            WHERE c.id_clase = %s AND c.id_profesor = %s AND c.eliminado = 0 AND g.eliminado = 0
         """
         
         clase = await fetch_one(query_clase, (id_clase, id_profesor))

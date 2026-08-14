@@ -11,6 +11,7 @@ async def obtener_grupos():
         grupos = await fetch_all("""
             SELECT id_grupo, nombre, turno, nivel
             FROM grupo
+            WHERE eliminado = 0
             ORDER BY nivel, nombre, turno
         """)
         
@@ -33,8 +34,8 @@ async def obtener_estudiantes():
         estudiantes = await fetch_all("""
             SELECT e.id_estudiante, e.matricula, e.nombre, e.apellido, g.nombre as grupo
             FROM estudiante e
-            LEFT JOIN grupo g ON e.id_grupo = g.id_grupo
-            WHERE e.estado_actual = 'activo'
+            LEFT JOIN grupo g ON e.id_grupo = g.id_grupo AND g.eliminado = 0
+            WHERE e.estado_actual = 'activo' AND e.eliminado = 0
             ORDER BY e.apellido, e.nombre
         """)
         
@@ -66,6 +67,7 @@ async def obtener_clases():
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
             LEFT JOIN profesor p ON c.id_profesor = p.id_profesor
+            WHERE c.eliminado = 0 AND (g.eliminado = 0 OR g.id_grupo IS NULL)
             ORDER BY m.nombre, g.nombre
         """)
         
@@ -120,6 +122,7 @@ async def obtener_clases_profesor(id_profesor: int):
             LEFT JOIN materia m ON c.id_materia = m.id_materia
             LEFT JOIN grupo g ON c.id_grupo = g.id_grupo
             WHERE c.id_profesor = %s
+              AND c.eliminado = 0 AND (g.eliminado = 0 OR g.id_grupo IS NULL)
             ORDER BY m.nombre, g.nombre
         """, (id_profesor,))
         

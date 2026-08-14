@@ -91,7 +91,7 @@ async def obtener_calificaciones_estudiante(
                    CONCAT(e.nombre, ' ', e.apellido) as nombre_completo,
                    e.id_grupo
             FROM estudiante e
-            WHERE e.id_estudiante = %s AND e.estado_actual = 'activo'
+            WHERE e.id_estudiante = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         """
         estudiante = await fetch_one(query_estudiante, (id_estudiante,))
         
@@ -105,7 +105,7 @@ async def obtener_calificaciones_estudiante(
         query_clase = """
             SELECT c.id_clase, c.nombre_clase, c.nrc, c.id_grupo
             FROM clase c
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """
         clase = await fetch_one(query_clase, (id_clase,))
         
@@ -213,7 +213,7 @@ async def obtener_calificaciones_clase(id_clase: int):
         query_clase = """
             SELECT c.id_clase, c.nombre_clase, c.nrc, c.id_grupo
             FROM clase c
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """
         clase = await fetch_one(query_clase, (id_clase,))
         
@@ -228,7 +228,7 @@ async def obtener_calificaciones_clase(id_clase: int):
             SELECT e.id_estudiante, e.matricula,
                    CONCAT(e.nombre, ' ', e.apellido) as nombre_completo
             FROM estudiante e
-            WHERE e.id_grupo = %s AND e.estado_actual = 'activo'
+            WHERE e.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             ORDER BY e.no_lista, e.apellido, e.nombre
         """
         estudiantes = await fetch_all(query_estudiantes, (clase['id_grupo'],))

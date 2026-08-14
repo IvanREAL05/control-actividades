@@ -72,6 +72,7 @@ async def obtener_observaciones():
         FROM observaciones o
         JOIN estudiante e ON o.estudiante_id = e.id_estudiante
         JOIN profesor p ON o.profesor_id = p.id_profesor
+        WHERE e.eliminado = 0
         ORDER BY o.fecha DESC
     """
     observaciones = await fetch_all(query)
@@ -145,7 +146,7 @@ async def obtener_observaciones_por_grupo(grupo_id: int):
             FROM observaciones o
             JOIN estudiante e ON e.id_estudiante = o.estudiante_id
             JOIN grupo g ON g.id_grupo = e.id_grupo
-            WHERE g.id_grupo = %s
+            WHERE g.id_grupo = %s AND e.eliminado = 0 AND g.eliminado = 0
             GROUP BY g.id_grupo, g.nombre
         """
         result = await fetch_one(query, (grupo_id,))

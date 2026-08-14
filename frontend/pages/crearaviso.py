@@ -166,6 +166,7 @@ st.sidebar.page_link("pages/generarqr_masivo.py", label="📦 QR Masivo")
 st.sidebar.page_link("pages/justificantes.py", label="📑 Justificantes")
 st.sidebar.page_link("pages/vertodasclases.py", label="📊 Ver todas las clases")
 st.sidebar.page_link("pages/cargardatos.py", label="📊 Subir datos")
+st.sidebar.page_link("pages/gestionar.py", label="🗂️ Gestionar datos")
 st.sidebar.page_link("app.py", label="🚪 Cerrar sesión")
 
 # ---------- CABECERA ----------

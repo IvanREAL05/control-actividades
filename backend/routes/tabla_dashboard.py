@@ -88,7 +88,7 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
         FROM clase c
         JOIN materia m ON c.id_materia = m.id_materia
         JOIN grupo g ON c.id_grupo = g.id_grupo
-        WHERE c.id_clase = %s
+        WHERE c.id_clase = %s AND c.eliminado = 0 AND g.eliminado = 0
     """
     info_clase = await fetch_all(query_clase, (id_clase,))
     
@@ -110,10 +110,10 @@ async def obtener_datos_tabla_completos(id_clase: int) -> Dict:
         FROM estudiante e
         JOIN grupo g ON e.id_grupo = g.id_grupo
         JOIN clase c ON c.id_grupo = g.id_grupo
-        LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante 
-            AND a.id_clase = c.id_clase 
+        LEFT JOIN asistencia a ON a.id_estudiante = e.id_estudiante
+            AND a.id_clase = c.id_clase
             AND a.fecha = %s
-        WHERE c.id_clase = %s
+        WHERE c.id_clase = %s AND e.eliminado = 0 AND g.eliminado = 0 AND c.eliminado = 0
         ORDER BY e.apellido, e.nombre
     """
     estudiantes = await fetch_all(query_estudiantes, (fecha_hoy, id_clase))

@@ -38,8 +38,8 @@ async def estadisticas_grupo(id_grupo: int, fechaInicio: Optional[str] = None, f
             ROUND(SUM(CASE WHEN a.estado IN ('presente', 'justificante') THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) AS porcentaje_asistencia
         FROM asistencia a
         JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-        JOIN clase c ON a.id_clase = c.id_clase
-        WHERE c.id_grupo = %s AND e.estado_actual = 'activo'
+        JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
+        WHERE c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         {condicion_fecha}
     """
     try:
@@ -72,9 +72,9 @@ async def estadisticas_grupo_materias(id_grupo: int, fechaInicio: Optional[str] 
             ROUND(SUM(CASE WHEN a.estado IN ('presente', 'justificante') THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) AS porcentaje_asistencia
         FROM asistencia a
         JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-        JOIN clase c ON a.id_clase = c.id_clase
+        JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
         JOIN materia m ON c.id_materia = m.id_materia
-        WHERE c.id_grupo = %s AND e.estado_actual = 'activo'
+        WHERE c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         {condicion_fecha}
         GROUP BY m.id_materia, m.nombre
         ORDER BY m.nombre
@@ -100,8 +100,8 @@ async def tendencia(id_grupo: int = Query(...), id_clase: Optional[int] = Query(
         SELECT a.fecha, a.estado, COUNT(*) AS cantidad
         FROM asistencia a
         JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-        JOIN clase c ON a.id_clase = c.id_clase
-        WHERE c.id_grupo = %s AND e.estado_actual = 'activo'
+        JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
+        WHERE c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         {filtro_clase}
         GROUP BY a.fecha, a.estado
         ORDER BY a.fecha ASC
@@ -129,8 +129,8 @@ async def detalle_grupo(id_grupo: int):
                    COUNT(*) AS faltas
             FROM asistencia a
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            JOIN clase c ON a.id_clase = c.id_clase
-            WHERE a.estado = 'ausente' AND c.id_grupo = %s AND e.estado_actual = 'activo'
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
+            WHERE a.estado = 'ausente' AND c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             GROUP BY e.id_estudiante, e.nombre, e.apellido
             ORDER BY faltas DESC
             LIMIT 5
@@ -142,8 +142,8 @@ async def detalle_grupo(id_grupo: int):
                    COUNT(*) AS asistencias
             FROM asistencia a
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            JOIN clase c ON a.id_clase = c.id_clase
-            WHERE a.estado = 'presente' AND c.id_grupo = %s AND e.estado_actual = 'activo'
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
+            WHERE a.estado = 'presente' AND c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             GROUP BY e.id_estudiante, e.nombre, e.apellido
             ORDER BY asistencias DESC
             LIMIT 5
@@ -155,8 +155,8 @@ async def detalle_grupo(id_grupo: int):
                    COUNT(*) AS justificantes
             FROM asistencia a
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            JOIN clase c ON a.id_clase = c.id_clase
-            WHERE a.estado = 'justificante' AND c.id_grupo = %s AND e.estado_actual = 'activo'
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
+            WHERE a.estado = 'justificante' AND c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             GROUP BY e.id_estudiante, e.nombre, e.apellido
             ORDER BY justificantes DESC
             LIMIT 5
@@ -174,8 +174,8 @@ async def detalle_grupo(id_grupo: int):
                    ROUND(SUM(CASE WHEN a.estado='justificante' THEN 1 ELSE 0 END)/COUNT(*)*100,1) AS justificantes_porcentaje
             FROM asistencia a
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            JOIN clase c ON a.id_clase = c.id_clase
-            WHERE c.id_grupo = %s AND e.estado_actual = 'activo'
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
+            WHERE c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             GROUP BY e.id_estudiante, e.nombre, e.apellido
             ORDER BY asistencia_porcentaje DESC
         """
@@ -184,10 +184,10 @@ async def detalle_grupo(id_grupo: int):
         materia_mas_faltada_query = """
             SELECT m.nombre, COUNT(*) AS total
             FROM asistencia a
-            JOIN clase c ON a.id_clase = c.id_clase
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            WHERE a.estado='ausente' AND c.id_grupo = %s AND e.estado_actual = 'activo'
+            WHERE a.estado='ausente' AND c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             GROUP BY m.id_materia, m.nombre
             ORDER BY total DESC
             LIMIT 2
@@ -197,10 +197,10 @@ async def detalle_grupo(id_grupo: int):
         materia_mas_asistida_query = """
             SELECT m.nombre
             FROM asistencia a
-            JOIN clase c ON a.id_clase = c.id_clase
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            WHERE a.estado='presente' AND c.id_grupo = %s AND e.estado_actual = 'activo'
+            WHERE a.estado='presente' AND c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
             GROUP BY m.id_materia, m.nombre
             ORDER BY COUNT(*) DESC
             LIMIT 1
@@ -210,9 +210,9 @@ async def detalle_grupo(id_grupo: int):
         asistencia_perfecta_query = """
             SELECT CONCAT(e.nombre, ' ', e.apellido) AS nombre
             FROM estudiante e
-            WHERE e.id_grupo = %s AND e.estado_actual = 'activo' AND NOT EXISTS (
+            WHERE e.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0 AND NOT EXISTS (
                 SELECT 1 FROM asistencia a
-                JOIN clase c ON a.id_clase = c.id_clase
+                JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
                 WHERE a.id_estudiante = e.id_estudiante AND a.estado = 'ausente' AND c.id_grupo = %s
             )
         """
@@ -224,9 +224,9 @@ async def detalle_grupo(id_grupo: int):
                 ROUND(AVG(CASE WHEN a.estado='ausente' THEN 1 ELSE 0 END)*100,1) AS faltas,
                 ROUND(AVG(CASE WHEN a.estado='justificante' THEN 1 ELSE 0 END)*100,1) AS justificantes
             FROM asistencia a
-            JOIN clase c ON a.id_clase = c.id_clase
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
             JOIN estudiante e ON a.id_estudiante = e.id_estudiante
-            WHERE c.id_grupo = %s AND e.estado_actual = 'activo'
+            WHERE c.id_grupo = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         """
         promedios = await fetch_one(promedios_query, (id_grupo,))
 
@@ -278,7 +278,7 @@ async def progreso_materias(id_alumno: int):
                    SUM(CASE WHEN a.estado='justificante' THEN 1 ELSE 0 END) AS justificantes,
                    ROUND(SUM(CASE WHEN a.estado IN ('presente', 'justificante') THEN 1 ELSE 0 END) / COUNT(*) * 100, 1) AS porcentaje_asistencia
             FROM asistencia a
-            JOIN clase c ON a.id_clase = c.id_clase
+            JOIN clase c ON a.id_clase = c.id_clase AND c.eliminado = 0
             JOIN materia m ON c.id_materia = m.id_materia
             WHERE a.id_estudiante = %s
             GROUP BY m.id_materia, m.nombre
@@ -338,8 +338,8 @@ async def resumen_clase(id_clase: int):
         query_estudiantes = """
             SELECT COUNT(DISTINCT e.id_estudiante) AS total_estudiantes 
             FROM estudiante e
-            JOIN clase c ON e.id_grupo = c.id_grupo
-            WHERE c.id_clase = %s AND e.estado_actual = 'activo'
+            JOIN clase c ON e.id_grupo = c.id_grupo AND c.eliminado = 0
+            WHERE c.id_clase = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         """
         res_estudiantes = await fetch_one(query_estudiantes, (id_clase,))
         total_estudiantes = int(res_estudiantes["total_estudiantes"]) if res_estudiantes else 0
@@ -350,7 +350,7 @@ async def resumen_clase(id_clase: int):
                 SELECT e.id_estudiante, e.nombre, e.apellido, COUNT(*) AS cantidad
                 FROM asistencia a
                 JOIN estudiante e ON e.id_estudiante = a.id_estudiante
-                WHERE a.id_clase = %s AND a.estado = '{estado}' AND e.estado_actual = 'activo'
+                WHERE a.id_clase = %s AND a.estado = '{estado}' AND e.estado_actual = 'activo' AND e.eliminado = 0
                 GROUP BY e.id_estudiante, e.nombre, e.apellido
                 ORDER BY cantidad DESC
                 LIMIT 3
@@ -547,7 +547,7 @@ async def get_asistencias_alumno_rango(
         query_estudiante = """
             SELECT e.id_estudiante, e.matricula, e.nombre, e.apellido, e.id_grupo
             FROM estudiante e
-            WHERE e.id_estudiante = %s AND e.estado_actual = 'activo'
+            WHERE e.id_estudiante = %s AND e.estado_actual = 'activo' AND e.eliminado = 0
         """
         estudiante = await fetch_one(query_estudiante, (id_estudiante,))
         
@@ -561,7 +561,7 @@ async def get_asistencias_alumno_rango(
         query_clase = """
             SELECT c.id_clase, c.nombre_clase, c.nrc, c.id_grupo
             FROM clase c
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """
         clase = await fetch_one(query_clase, (id_clase,))
         
@@ -697,7 +697,7 @@ async def get_alumnos_clase(id_clase: int):
         query_clase = """
             SELECT c.id_clase, c.id_grupo
             FROM clase c
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0
         """
         clase = await fetch_one(query_clase, (id_clase,))
         
@@ -718,7 +718,7 @@ async def get_alumnos_clase(id_clase: int):
                 CONCAT(e.nombre, ' ', e.apellido) as nombre_completo
             FROM estudiante e
             WHERE e.id_grupo = %s 
-              AND e.estado_actual = 'activo'
+              AND e.estado_actual = 'activo' AND e.eliminado = 0
             ORDER BY e.no_lista, e.apellido, e.nombre
         """
         alumnos = await fetch_all(query_alumnos, (clase['id_grupo'],))

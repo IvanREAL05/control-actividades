@@ -9,7 +9,7 @@ router = APIRouter()
 @router.get("/")
 async def obtener_grupos():
     """Obtiene todos los grupos disponibles"""
-    query = "SELECT id_grupo, nombre, turno, nivel FROM grupo ORDER BY nombre"
+    query = "SELECT id_grupo, nombre, turno, nivel FROM grupo WHERE eliminado = 0 ORDER BY nombre"
     try:
         grupos = await fetch_all(query)
         return {
@@ -23,7 +23,7 @@ async def obtener_grupos():
 @router.get("/lista")
 async def obtener_grupos():
     """Obtiene todos los grupos disponibles"""
-    query = "SELECT id_grupo, nombre, turno, nivel FROM grupo ORDER BY nombre"
+    query = "SELECT id_grupo, nombre, turno, nivel FROM grupo WHERE eliminado = 0 ORDER BY nombre"
     try:
         grupos = await fetch_all(query)
         return grupos  # ✅ Devuelve directamente la lista
@@ -35,7 +35,7 @@ async def obtener_grupos():
 @router.get("/{id_grupo}")
 async def obtener_grupo(id_grupo: int):
     """Obtiene un grupo específico por su ID"""
-    query = "SELECT * FROM grupo WHERE id_grupo = %s"
+    query = "SELECT * FROM grupo WHERE id_grupo = %s AND eliminado = 0"
     try:
         grupo = await fetch_one(query, (id_grupo,))
         if not grupo:
@@ -54,7 +54,7 @@ async def obtener_grupo(id_grupo: int):
 async def obtener_estudiantes_grupo(id_grupo: int):
     """Obtiene todos los estudiantes de un grupo específico"""
     # Primero verificar que el grupo existe
-    grupo_query = "SELECT id_grupo, nombre FROM grupo WHERE id_grupo = %s"
+    grupo_query = "SELECT id_grupo, nombre FROM grupo WHERE id_grupo = %s AND eliminado = 0"
     grupo = await fetch_one(grupo_query, (id_grupo,))
     
     if not grupo:
@@ -70,8 +70,8 @@ async def obtener_estudiantes_grupo(id_grupo: int):
             e.correo,
             e.estado_actual,
             e.no_lista
-        FROM estudiante e 
-        WHERE e.id_grupo = %s 
+        FROM estudiante e
+        WHERE e.id_grupo = %s AND e.eliminado = 0
         ORDER BY e.no_lista, e.apellido, e.nombre
     """
     
@@ -95,7 +95,7 @@ async def obtener_estudiantes_grupo(id_grupo: int):
 async def obtener_clases_grupo(id_grupo: int):
     """Obtiene todas las clases de un grupo específico"""
     # Verificar que el grupo existe
-    grupo_query = "SELECT id_grupo, nombre FROM grupo WHERE id_grupo = %s"
+    grupo_query = "SELECT id_grupo, nombre FROM grupo WHERE id_grupo = %s AND eliminado = 0"
     grupo = await fetch_one(grupo_query, (id_grupo,))
     
     if not grupo:
@@ -114,7 +114,7 @@ async def obtener_clases_grupo(id_grupo: int):
         FROM clase c
         JOIN materia m ON c.id_materia = m.id_materia
         JOIN profesor p ON c.id_profesor = p.id_profesor
-        WHERE c.id_grupo = %s
+        WHERE c.id_grupo = %s AND c.eliminado = 0
         ORDER BY m.nombre
     """
     
@@ -136,7 +136,7 @@ async def obtener_clases_grupo(id_grupo: int):
 # Obtener horarios de un grupo
 @router.get("/{id_grupo}/horarios")
 async def obtener_horarios_grupo(id_grupo: int):
-    grupo_query = "SELECT id_grupo, nombre FROM grupo WHERE id_grupo = %s"
+    grupo_query = "SELECT id_grupo, nombre FROM grupo WHERE id_grupo = %s AND eliminado = 0"
     grupo = await fetch_one(grupo_query, (id_grupo,))
     if not grupo:
         raise HTTPException(status_code=404, detail="Grupo no encontrado")
@@ -155,8 +155,8 @@ async def obtener_horarios_grupo(id_grupo: int):
         JOIN clase c   ON h.id_clase = c.id_clase
         JOIN materia m ON c.id_materia = m.id_materia
         JOIN profesor p ON c.id_profesor = p.id_profesor
-        WHERE c.id_grupo = %s
-        ORDER BY 
+        WHERE c.id_grupo = %s AND c.eliminado = 0 AND h.eliminado = 0
+        ORDER BY
             FIELD(h.dia, 'Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'),
             h.hora_inicio
     """

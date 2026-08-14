@@ -80,12 +80,13 @@ async def obtener_clases_hoy(turno: Optional[str] = None):
             JOIN clase c ON hc.id_clase = c.id_clase
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN materia m ON c.id_materia = m.id_materia
-            JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo'
+            JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo' AND e.eliminado = 0
             LEFT JOIN asistencia a 
                 ON a.id_clase = c.id_clase AND a.id_estudiante = e.id_estudiante AND a.fecha = %s
             WHERE hc.dia = %s
               AND hc.hora_inicio < %s
               AND hc.hora_fin   > %s
+              AND hc.eliminado = 0 AND c.eliminado = 0 AND g.eliminado = 0
             GROUP BY c.id_clase, m.nombre, c.nrc, g.nombre, g.id_grupo, hc.hora_inicio, hc.hora_fin
             ORDER BY hc.hora_inicio ASC
         """
@@ -125,6 +126,7 @@ async def obtener_todas_clases_hoy():
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN profesor p ON c.id_profesor = p.id_profesor
             WHERE hc.dia = %s
+              AND hc.eliminado = 0 AND c.eliminado = 0 AND g.eliminado = 0
             ORDER BY hc.hora_inicio ASC
         """
         result = await fetch_all(query, (dia_semana,))
@@ -170,7 +172,7 @@ async def clases_por_bloque(
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN profesor p ON c.id_profesor = p.id_profesor
-            LEFT JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo'
+            LEFT JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo' AND e.eliminado = 0
             LEFT JOIN asistencia a 
                 ON a.id_clase = c.id_clase 
                 AND a.id_estudiante = e.id_estudiante 
@@ -178,6 +180,7 @@ async def clases_por_bloque(
             WHERE LOWER(hc.dia) = LOWER(%s)
               AND CAST(hc.hora_inicio AS TIME) >= CAST(%s AS TIME)
               AND CAST(hc.hora_inicio AS TIME) <= CAST(%s AS TIME)
+              AND hc.eliminado = 0 AND c.eliminado = 0 AND g.eliminado = 0
             GROUP BY 
                 c.id_clase, m.nombre, c.nrc, g.nombre, g.id_grupo, 
                 p.nombre, c.aula, hc.hora_inicio, hc.hora_fin
@@ -227,13 +230,14 @@ async def clases_por_dia(dia: str):
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN profesor p ON c.id_profesor = p.id_profesor
-            LEFT JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo'
+            LEFT JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo' AND e.eliminado = 0
             LEFT JOIN asistencia a 
                 ON a.id_clase = c.id_clase 
                 AND a.id_estudiante = e.id_estudiante 
                 AND a.fecha = %s
             WHERE LOWER(hc.dia) = LOWER(%s)
-            GROUP BY 
+              AND hc.eliminado = 0 AND c.eliminado = 0 AND g.eliminado = 0
+            GROUP BY
                 c.id_clase, m.nombre, c.nrc, g.nombre, g.id_grupo, 
                 p.nombre, c.aula, hc.hora_inicio, hc.hora_fin
             ORDER BY hc.hora_inicio ASC
@@ -287,6 +291,7 @@ async def debug_clases_dia(dia: str):
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN profesor p ON c.id_profesor = p.id_profesor
             WHERE LOWER(hc.dia) = LOWER(%s)
+              AND hc.eliminado = 0 AND c.eliminado = 0 AND g.eliminado = 0
             ORDER BY hc.hora_inicio
         """
         result = await fetch_all(query, (dia,))
@@ -313,7 +318,8 @@ async def debug_grupos():
                 COUNT(e.id_estudiante) as total_estudiantes,
                 COUNT(CASE WHEN e.estado_actual = 'activo' THEN 1 END) as activos
             FROM grupo g
-            LEFT JOIN estudiante e ON e.id_grupo = g.id_grupo
+            LEFT JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.eliminado = 0
+            WHERE g.eliminado = 0
             GROUP BY g.id_grupo, g.nombre
             ORDER BY g.nombre
         """
@@ -361,12 +367,13 @@ async def clases_por_dia(dia: str = Query(...), turno: Optional[str] = "matutino
             JOIN clase c ON hc.id_clase = c.id_clase
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN materia m ON c.id_materia = m.id_materia
-            JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo'
+            JOIN estudiante e ON e.id_grupo = g.id_grupo AND e.estado_actual = 'activo' AND e.eliminado = 0
             LEFT JOIN asistencia a 
                 ON a.id_clase = c.id_clase AND a.id_estudiante = e.id_estudiante AND a.fecha = %s
             WHERE LOWER(hc.dia) = %s
               AND hc.hora_fin > %s
               AND hc.hora_inicio < %s
+              AND hc.eliminado = 0 AND c.eliminado = 0 AND g.eliminado = 0
             GROUP BY c.id_clase, m.nombre, c.nrc, g.nombre, g.id_grupo, hc.hora_inicio, hc.hora_fin
             ORDER BY hc.hora_inicio ASC
         """
@@ -403,8 +410,8 @@ async def clases_por_grupo(grupo: str = Query(...)):
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN profesor p ON c.id_profesor = p.id_profesor
-            LEFT JOIN horario_clase hc ON c.id_clase = hc.id_clase
-            WHERE g.nombre = %s
+            LEFT JOIN horario_clase hc ON c.id_clase = hc.id_clase AND hc.eliminado = 0
+            WHERE g.nombre = %s AND c.eliminado = 0 AND g.eliminado = 0
             ORDER BY hc.dia, hc.hora_inicio
         """
         result = await fetch_all(query, (grupo,))
@@ -473,7 +480,7 @@ async def obtener_clases_profesor(id_profesor: int):
             FROM clase c
             INNER JOIN materia m ON c.id_materia = m.id_materia
             INNER JOIN grupo g ON c.id_grupo = g.id_grupo
-            WHERE c.id_profesor = %s
+            WHERE c.id_profesor = %s AND c.eliminado = 0 AND g.eliminado = 0
             ORDER BY m.nombre, g.nombre
         """
         

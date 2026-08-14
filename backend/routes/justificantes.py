@@ -54,7 +54,7 @@ async def registrar_justificante(
             f.write(await documento_ine.read())
 
     # Buscar estudiante por matrícula
-    estudiante = await fetch_one("SELECT id_estudiante, nombre AS nombre_estudiante FROM estudiante WHERE matricula=%s", (matricula,))
+    estudiante = await fetch_one("SELECT id_estudiante, nombre AS nombre_estudiante FROM estudiante WHERE matricula=%s AND eliminado = 0", (matricula,))
     if not estudiante:
         raise HTTPException(status_code=404, detail="Estudiante no encontrado")
 
@@ -104,6 +104,7 @@ async def registrar_justificante(
         JOIN estudiante e ON e.id_grupo = g.id_grupo
         WHERE e.id_estudiante=%s
         AND c.fecha BETWEEN %s AND %s
+        AND e.eliminado = 0 AND g.eliminado = 0 AND c.eliminado = 0
     """, (id_estudiante, fecha_inicio, fecha_fin))
 
     for clase in clases:

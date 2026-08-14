@@ -110,6 +110,7 @@ async def clase_actual(id_profesor: int = Query(..., description="ID del profeso
               AND hc.dia = %s
               AND hc.hora_inicio <= %s
               AND hc.hora_fin >= %s
+              AND c.eliminado = 0 AND g.eliminado = 0 AND hc.eliminado = 0
             LIMIT 1
         """, (id_profesor, dia_enum, hora_obj, hora_obj))
 
@@ -262,6 +263,7 @@ async def clases_hoy(id_profesor: int):
             JOIN horario_clase hc ON c.id_clase = hc.id_clase
             JOIN profesor p ON c.id_profesor = p.id_profesor
             WHERE c.id_profesor = %s AND hc.dia = %s
+              AND c.eliminado = 0 AND g.eliminado = 0 AND hc.eliminado = 0
             ORDER BY hc.hora_inicio
         """, (id_profesor, dia_enum))
 
@@ -347,7 +349,8 @@ async def todas_clases(id_profesor: int):
             JOIN horario_clase hc ON c.id_clase = hc.id_clase
             JOIN profesor p ON c.id_profesor = p.id_profesor
             WHERE c.id_profesor = %s
-            ORDER BY 
+              AND c.eliminado = 0 AND g.eliminado = 0 AND hc.eliminado = 0
+            ORDER BY
                 FIELD(hc.dia, 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'),
                 hc.hora_inicio
         """, (id_profesor,))
@@ -427,7 +430,7 @@ async def obtener_estudiantes_clase(id_clase: int):
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN grupo g ON c.id_grupo = g.id_grupo
             JOIN profesor p ON c.id_profesor = p.id_profesor
-            WHERE c.id_clase = %s
+            WHERE c.id_clase = %s AND c.eliminado = 0 AND g.eliminado = 0
         """, (id_clase,))
         
         if not clase:
@@ -447,8 +450,8 @@ async def obtener_estudiantes_clase(id_clase: int):
                 e.estado_actual,
                 e.no_lista
             FROM estudiante e
-            JOIN clase c ON e.id_grupo = c.id_grupo
-            WHERE c.id_clase = %s
+            JOIN clase c ON e.id_grupo = c.id_grupo AND c.eliminado = 0
+            WHERE c.id_clase = %s AND e.eliminado = 0
             ORDER BY e.no_lista, e.apellido, e.nombre
         """, (id_clase,))
 

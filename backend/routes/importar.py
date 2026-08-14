@@ -5,6 +5,7 @@ from datetime import datetime, time
 from pydantic import BaseModel
 from typing import List, Optional
 from config.db import fetch_one, fetch_all, execute_query
+from utils.fecha import obtener_fecha_hora_cdmx_completa
 import logging
 
 router = APIRouter()
@@ -247,7 +248,7 @@ async def validar_dependencias(tipo: str):
 
         if tipo == "estudiantes":
             # Verificar que existan grupos
-            grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo")
+            grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo WHERE eliminado = 0")
             if grupos[0]['total'] == 0:
                 resultado['puede_importar'] = False
                 resultado['advertencias'].append("⚠️ No hay grupos registrados. Importe grupos primero.")
@@ -266,20 +267,20 @@ async def validar_dependencias(tipo: str):
                 resultado['puede_importar'] = False
             
             # Verificar grupos
-            grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo")
+            grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo WHERE eliminado = 0")
             if grupos[0]['total'] == 0:
                 resultado['advertencias'].append("⚠️ No hay grupos registrados.")
                 resultado['puede_importar'] = False
 
         elif tipo == "calificaciones":  # ✅ AGREGADO
             # Verificar estudiantes
-            estudiantes = await fetch_all("SELECT COUNT(*) as total FROM estudiante")
+            estudiantes = await fetch_all("SELECT COUNT(*) as total FROM estudiante WHERE eliminado = 0")
             if estudiantes[0]['total'] == 0:
                 resultado['advertencias'].append("⚠️ No hay estudiantes registrados.")
                 resultado['puede_importar'] = False
             
             # Verificar clases
-            clases = await fetch_all("SELECT COUNT(*) as total FROM clase")
+            clases = await fetch_all("SELECT COUNT(*) as total FROM clase WHERE eliminado = 0")
             if clases[0]['total'] == 0:
                 resultado['advertencias'].append("⚠️ No hay clases registradas.")
                 resultado['puede_importar'] = False
@@ -300,7 +301,7 @@ async def obtener_estadisticas():
         stats = {}
         
         # Estudiantes
-        estudiantes = await fetch_all("SELECT COUNT(*) as total FROM estudiante")
+        estudiantes = await fetch_all("SELECT COUNT(*) as total FROM estudiante WHERE eliminado = 0")
         stats['estudiantes'] = estudiantes[0]['total']
         
         # Profesores
@@ -308,7 +309,7 @@ async def obtener_estadisticas():
         stats['profesores'] = profesores[0]['total']
         
         # Grupos
-        grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo")
+        grupos = await fetch_all("SELECT COUNT(*) as total FROM grupo WHERE eliminado = 0")
         stats['grupos'] = grupos[0]['total']
         
         # Materias
@@ -316,11 +317,11 @@ async def obtener_estadisticas():
         stats['materias'] = materias[0]['total']
         
         # Clases
-        clases = await fetch_all("SELECT COUNT(*) as total FROM clase")
+        clases = await fetch_all("SELECT COUNT(*) as total FROM clase WHERE eliminado = 0")
         stats['clases'] = clases[0]['total']
         
         # Horarios
-        horarios = await fetch_all("SELECT COUNT(*) as total FROM horario_clase")
+        horarios = await fetch_all("SELECT COUNT(*) as total FROM horario_clase WHERE eliminado = 0")
         stats['horarios'] = horarios[0]['total']
 
         # Calificaciones - ✅ AGREGADO
@@ -345,7 +346,7 @@ async def buscar_por_matricula(matricula: str):
     SELECT e.*, g.nombre as nombre_grupo
     FROM estudiante e
     JOIN grupo g ON e.id_grupo = g.id_grupo
-    WHERE e.matricula = %s
+    WHERE e.matricula = %s AND e.eliminado = 0 AND g.eliminado = 0
     """
     resultado = await fetch_one(query, (matricula,))
     if not resultado:
@@ -364,7 +365,7 @@ async def buscar_por_nombre(nombre: str, apellido: Optional[str] = None):
         SELECT e.*, g.nombre as nombre_grupo
         FROM estudiante e
         JOIN grupo g ON e.id_grupo = g.id_grupo
-        WHERE e.nombre LIKE %s AND e.apellido LIKE %s
+        WHERE (e.nombre LIKE %s AND e.apellido LIKE %s) AND e.eliminado = 0 AND g.eliminado = 0
         """
         resultados = await fetch_all(query, (f"%{nombre}%", f"%{apellido}%"))
     else:
@@ -372,7 +373,7 @@ async def buscar_por_nombre(nombre: str, apellido: Optional[str] = None):
         SELECT e.*, g.nombre as nombre_grupo
         FROM estudiante e
         JOIN grupo g ON e.id_grupo = g.id_grupo
-        WHERE e.nombre LIKE %s OR e.apellido LIKE %s
+        WHERE (e.nombre LIKE %s OR e.apellido LIKE %s) AND e.eliminado = 0 AND g.eliminado = 0
         """
         resultados = await fetch_all(query, (f"%{nombre}%", f"%{nombre}%"))
 
@@ -388,7 +389,7 @@ async def buscar_por_grupo(id_grupo: int):
     SELECT e.*, g.nombre as nombre_grupo
     FROM estudiante e
     JOIN grupo g ON e.id_grupo = g.id_grupo
-    WHERE e.id_grupo = %s
+    WHERE e.id_grupo = %s AND e.eliminado = 0 AND g.eliminado = 0
     ORDER BY e.no_lista
     """
     resultados = await fetch_all(query, (id_grupo,))
@@ -401,7 +402,7 @@ async def buscar_por_grupo(id_grupo: int):
 async def editar_estudiante(id_estudiante: int, datos: EstudianteEditar):
     """Edita información de un estudiante"""
     # Verificar que existe
-    estudiante = await fetch_one("SELECT id_estudiante FROM estudiante WHERE id_estudiante = %s", (id_estudiante,))
+    estudiante = await fetch_one("SELECT id_estudiante FROM estudiante WHERE id_estudiante = %s AND eliminado = 0", (id_estudiante,))
     if not estudiante:
         raise HTTPException(status_code=404, detail="Estudiante no encontrado")
 
@@ -432,7 +433,7 @@ async def editar_estudiante(id_estudiante: int, datos: EstudianteEditar):
         valores.append(datos.correo)
 
     if datos.id_grupo:
-        grupo = await fetch_one("SELECT id_grupo FROM grupo WHERE id_grupo = %s", (datos.id_grupo,))
+        grupo = await fetch_one("SELECT id_grupo FROM grupo WHERE id_grupo = %s AND eliminado = 0", (datos.id_grupo,))
         if not grupo:
             raise HTTPException(status_code=400, detail="El grupo no existe")
         campos.append("id_grupo = %s")
@@ -455,19 +456,31 @@ async def editar_estudiante(id_estudiante: int, datos: EstudianteEditar):
 
 @router.delete("/estudiante/eliminar/{id_estudiante}")
 async def eliminar_estudiante(id_estudiante: int):
-    """Elimina un estudiante y sus registros relacionados"""
-    estudiante = await fetch_one("SELECT matricula, nombre, apellido FROM estudiante WHERE id_estudiante = %s", (id_estudiante,))
+    """
+    Envía un estudiante a la papelera (borrado lógico).
+
+    Antes esto hacía un DELETE físico del alumno y de todas sus asistencias.
+    Ahora solo lo marca como eliminado: los datos se conservan y se puede
+    restaurar desde /api/papelera.
+    """
+    estudiante = await fetch_one(
+        "SELECT matricula, nombre, apellido FROM estudiante WHERE id_estudiante = %s AND eliminado = 0",
+        (id_estudiante,)
+    )
     if not estudiante:
         raise HTTPException(status_code=404, detail="Estudiante no encontrado")
 
-    # Eliminar asistencias primero
-    await execute_query("DELETE FROM asistencia WHERE id_estudiante = %s", (id_estudiante,))
+    await execute_query(
+        """
+        UPDATE estudiante
+        SET eliminado = 1, fecha_eliminado = %s, eliminado_por = 'importar'
+        WHERE id_estudiante = %s
+        """,
+        (obtener_fecha_hora_cdmx_completa(), id_estudiante)
+    )
 
-    # Eliminar estudiante
-    await execute_query("DELETE FROM estudiante WHERE id_estudiante = %s", (id_estudiante,))
-    
     return {
-        "message": "Estudiante eliminado correctamente",
+        "message": "Estudiante enviado a la papelera",
         "estudiante": estudiante
     }
 

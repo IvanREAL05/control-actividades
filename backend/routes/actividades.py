@@ -78,14 +78,14 @@ async def crear_actividad(data: ActividadCreate):
         id_actividad = cursor.lastrowid if hasattr(cursor, "lastrowid") else cursor
 
         # 2️⃣ Obtener el grupo de la clase
-        query_clase = "SELECT id_grupo FROM clase WHERE id_clase = %s"
+        query_clase = "SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0"
         clase = await fetch_one(query_clase, (data.id_clase,))
         if not clase:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
         id_grupo = clase["id_grupo"]
 
         # 3️⃣ Obtener todos los estudiantes del grupo
-        query_estudiantes = "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s"
+        query_estudiantes = "SELECT id_estudiante FROM estudiante WHERE id_grupo = %s AND eliminado = 0"
         estudiantes = await fetch_all(query_estudiantes, (id_grupo,))
 
         # 4️⃣ Insertar registros en actividad_estudiante para todos
@@ -275,7 +275,7 @@ async def registrar_entrega(request: EntregaQRRequest):
 
         # 2️⃣ Buscar estudiante por matrícula
         estudiante = await fetch_one(
-            "SELECT id_estudiante, nombre, id_grupo FROM estudiante WHERE matricula=%s",
+            "SELECT id_estudiante, nombre, id_grupo FROM estudiante WHERE matricula=%s AND eliminado = 0",
             (matricula,)
         )
         if not estudiante:
@@ -283,7 +283,7 @@ async def registrar_entrega(request: EntregaQRRequest):
 
         # 3️⃣ Validar grupo
         grupo_estudiante = await fetch_one(
-            "SELECT nombre FROM grupo WHERE id_grupo=%s",
+            "SELECT nombre FROM grupo WHERE id_grupo=%s AND eliminado = 0",
             (estudiante["id_grupo"],)
         )
         if grupo_estudiante["nombre"].lower() != grupo_qr.lower():
@@ -291,7 +291,7 @@ async def registrar_entrega(request: EntregaQRRequest):
 
         # 4️⃣ Validar relación clase ↔ grupo
         clase = await fetch_one(
-            "SELECT id_grupo FROM clase WHERE id_clase=%s",
+            "SELECT id_grupo FROM clase WHERE id_clase=%s AND eliminado = 0",
             (actividad["id_clase"],)
         )
         if not clase or clase["id_grupo"] != estudiante["id_grupo"]:
@@ -449,10 +449,10 @@ async def obtener_estudiantes_por_actividad(id_actividad: int):
             a.valor_maximo
         FROM estudiante e
         INNER JOIN actividad a ON a.id_actividad = %s
-        INNER JOIN clase c ON c.id_clase = a.id_clase AND c.id_grupo = e.id_grupo
-        LEFT JOIN actividad_estudiante ae 
+        INNER JOIN clase c ON c.id_clase = a.id_clase AND c.id_grupo = e.id_grupo AND c.eliminado = 0
+        LEFT JOIN actividad_estudiante ae
             ON e.id_estudiante = ae.id_estudiante AND ae.id_actividad = %s
-        WHERE a.id_actividad = %s
+        WHERE a.id_actividad = %s AND e.eliminado = 0
         ORDER BY e.no_lista ASC, e.apellido ASC, e.nombre ASC
     """
 
@@ -556,7 +556,7 @@ async def actualizar_estado_estudiante(payload: EstadoEstudianteRequest):
                    e.nombre, e.apellido, e.id_estudiante
             FROM actividad_estudiante ae
             JOIN estudiante e ON ae.id_estudiante = e.id_estudiante
-            WHERE ae.id_actividad = %s AND ae.id_estudiante = %s
+            WHERE ae.id_actividad = %s AND ae.id_estudiante = %s AND e.eliminado = 0
         """
         existente = await fetch_one(check_query, (actividad_id, estudiante_id))
 
@@ -597,7 +597,7 @@ async def actualizar_estado_estudiante(payload: EstadoEstudianteRequest):
         # 🔹 SI NO EXISTE → CREA NUEVO REGISTRO
         # =====================================================
         else:
-            estudiante_query = "SELECT id_estudiante, nombre, apellido FROM estudiante WHERE id_estudiante = %s"
+            estudiante_query = "SELECT id_estudiante, nombre, apellido FROM estudiante WHERE id_estudiante = %s AND eliminado = 0"
             estudiante = await fetch_one(estudiante_query, (estudiante_id,))
             if not estudiante:
                 raise HTTPException(status_code=404, detail="El estudiante especificado no existe")
@@ -753,7 +753,7 @@ async def get_historial(id_clase: int):
 
     try:
         # 1️⃣ Obtener el grupo de la clase
-        clase_query = "SELECT id_grupo FROM clase WHERE id_clase = %s"
+        clase_query = "SELECT id_grupo FROM clase WHERE id_clase = %s AND eliminado = 0"
         clase = await fetch_one(clase_query, (id_clase,))
         if not clase:
             raise HTTPException(status_code=404, detail="Clase no encontrada")
@@ -788,9 +788,9 @@ async def get_historial(id_clase: int):
             FROM estudiante e
             JOIN grupo g ON e.id_grupo = g.id_grupo
             LEFT JOIN actividad a ON a.id_clase = %s
-            LEFT JOIN actividad_estudiante ae ON ae.id_estudiante = e.id_estudiante 
+            LEFT JOIN actividad_estudiante ae ON ae.id_estudiante = e.id_estudiante
                                                AND ae.id_actividad = a.id_actividad
-            WHERE e.id_grupo = %s
+            WHERE e.id_grupo = %s AND e.eliminado = 0 AND g.eliminado = 0
             GROUP BY e.id_estudiante, e.nombre, e.apellido, e.matricula,
                      e.no_lista, e.correo, e.estado_actual, g.nombre
             ORDER BY CAST(e.no_lista AS UNSIGNED), e.apellido ASC, e.nombre ASC
@@ -882,13 +882,13 @@ async def get_detalle_alumno(id_estudiante: int, id_clase: int):
                 ae.calificacion
             FROM estudiante e
             JOIN grupo g ON e.id_grupo = g.id_grupo
-            JOIN clase c ON c.id_clase = %s
+            JOIN clase c ON c.id_clase = %s AND c.eliminado = 0
             JOIN materia m ON c.id_materia = m.id_materia
             JOIN profesor p ON c.id_profesor = p.id_profesor
             LEFT JOIN actividad a ON a.id_clase = c.id_clase
-            LEFT JOIN actividad_estudiante ae 
+            LEFT JOIN actividad_estudiante ae
                 ON a.id_actividad = ae.id_actividad AND ae.id_estudiante = e.id_estudiante
-            WHERE e.id_estudiante = %s
+            WHERE e.id_estudiante = %s AND e.eliminado = 0 AND g.eliminado = 0
             ORDER BY a.fecha_creacion ASC
         """
 
@@ -988,7 +988,7 @@ async def validar_entrega(data: ValidarEntregaRequest):
     matricula_str = matricula.strip()
 
     estudiante = await fetch_one(
-        "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula=%s",
+        "SELECT id_estudiante, id_grupo FROM estudiante WHERE matricula=%s AND eliminado = 0",
         (matricula_str,)
     )
     if not estudiante:

@@ -98,7 +98,7 @@ async def registrar_asistencia(req: AsistenciaQRRequest):
                 g.nombre as grupo_nombre
             FROM estudiante e
             JOIN grupo g ON e.id_grupo = g.id_grupo
-            WHERE e.matricula = %s
+            WHERE e.matricula = %s AND e.eliminado = 0 AND g.eliminado = 0
         """, (matricula,))
         
         if not estudiante:
@@ -155,6 +155,7 @@ async def registrar_asistencia(req: AsistenciaQRRequest):
               AND hc.dia = %s
               AND hc.hora_inicio <= %s
               AND hc.hora_fin > %s
+              AND c.eliminado = 0 AND hc.eliminado = 0
             LIMIT 1
         """, (id_grupo, dia, hora_obj, hora_obj))
         
@@ -239,7 +240,7 @@ async def generar_qr(matricula: str):
                 e.estado_actual
             FROM estudiante e
             JOIN grupo g ON e.id_grupo = g.id_grupo
-            WHERE e.matricula = %s
+            WHERE e.matricula = %s AND e.eliminado = 0 AND g.eliminado = 0
         """, (matricula,))
         
         if not alumno:
@@ -367,7 +368,7 @@ async def info_qr(req: QRInfoRequest):
                 g.nivel
             FROM estudiante e
             JOIN grupo g ON e.id_grupo = g.id_grupo
-            WHERE e.matricula = %s
+            WHERE e.matricula = %s AND e.eliminado = 0 AND g.eliminado = 0
         """, (matricula,))
         
         if not alumno:
